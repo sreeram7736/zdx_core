@@ -29,8 +29,5 @@ client_scripts {
 dependencies {
     '/onesync',
     'oxmysql',
+    'es_extended',
 }
-
-provide 'es_extended'
-provide 'qb-core'
-provide 'qbx_core'
