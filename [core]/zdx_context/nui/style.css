@@ -1,0 +1,81 @@
+/* ── ZDX Context Menu ── */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { width: 100vw; height: 100vh; overflow: hidden; font-family: 'Poppins', sans-serif; user-select: none; }
+
+#container {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 280px;
+  max-height: 55vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  scrollbar-width: thin;
+  scrollbar-color: rgb(30,30,30) transparent;
+}
+#container::-webkit-scrollbar       { width: 4px; }
+#container::-webkit-scrollbar-thumb { background: rgb(30,30,30); border-radius: 4px; }
+
+/* Positions */
+#container.left   { left: 2%; }
+#container.center { left: 50%; transform: translate(-50%, -50%); }
+#container.right  { right: 2%; }
+
+/* Items */
+.item {
+  display: grid;
+  grid-template-columns: 30px 1fr;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  background: #242424;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: background 0.12s;
+  color: #fff;
+  font-size: 13px;
+  border: 1px solid transparent;
+}
+.item:hover { background: #404040; border-color: rgba(200,160,75,0.3); }
+.item.unselectable { background: #161616; pointer-events: none; color: #888; }
+.item.disabled      { background: #2a2a2a; pointer-events: none; color: #555; }
+
+.item-icon  { color: #888; font-size: 14px; text-align: center; }
+.item-body  { display: flex; flex-direction: column; gap: 2px; }
+.item-title { font-size: 13px; font-weight: 500; }
+.item-desc  { font-size: 11px; color: #888; }
+
+/* Inputs */
+.item input[type="text"],
+.item input[type="number"] {
+  width: 100%;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 3px;
+  color: #fff;
+  font-family: inherit;
+  font-size: 13px;
+  padding: 4px 8px;
+  outline: none;
+  margin-top: 4px;
+}
+.item input:focus { border-color: #c8a04b; }
+
+/* Radio */
+.radio-group { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
+.radio-label { display: flex; align-items: center; gap: 6px; font-size: 12px; cursor: pointer; }
+.radio-label input { display: none; }
+.checkmark {
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  border: 1px solid #888;
+  background: transparent;
+  flex-shrink: 0;
+  transition: background 0.1s, border-color 0.1s;
+}
+.radio-label input:checked + .checkmark {
+  background: #2196f3;
+  border-color: #2196f3;
+}

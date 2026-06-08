@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>ZDX Menu Dialog</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="dialog-wrap" style="display:none">
+    <div class="dialog">
+      <div class="head"><span id="dialog-title">Dialog</span></div>
+      <div class="body">
+        <input  id="dialog-input"    type="text"  class="dialog-input" placeholder="Enter text..." />
+        <textarea id="dialog-textarea" class="dialog-input dialog-textarea" placeholder="Enter text..."></textarea>
+      </div>
+      <div class="actions">
+        <button id="btn-submit" class="btn-submit">Submit</button>
+        <button id="btn-cancel" class="btn-cancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+  <script src="app.js"></script>
+</body>
+</html>

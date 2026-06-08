@@ -1,0 +1,63 @@
+/* ── ZDX Menu List ── */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { width: 100vw; height: 100vh; overflow: hidden; font-family: 'Poppins', sans-serif; }
+
+#menu-wrap {
+  position: absolute;
+  left: 50%; top: 40%;
+  transform: translate(-50%, -50%);
+  max-height: 90vh;
+  overflow-y: auto;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+  scrollbar-width: thin;
+  scrollbar-color: #1a1a1a transparent;
+}
+#menu-wrap::-webkit-scrollbar       { width: 5px; }
+#menu-wrap::-webkit-scrollbar-thumb { background: #1a1a1a; }
+
+#menu-table {
+  border-collapse: separate;
+  border-spacing: 0 4px;
+  min-width: 420px;
+  background: transparent;
+}
+
+thead tr {
+  background: rgba(10, 10, 10, 0.95);
+}
+thead th {
+  padding: 10px 14px;
+  color: #c8a04b;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: center;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+tbody tr {
+  background: rgba(35, 35, 35, 0.88);
+  transition: background 0.12s;
+}
+tbody tr:hover { background: rgba(50, 50, 50, 0.95); }
+
+tbody td {
+  padding: 8px 14px;
+  color: #e0e0e0;
+  font-size: 13px;
+  text-align: center;
+}
+
+button {
+  background: rgba(200,160,75,0.15);
+  border: 1px solid #c8a04b;
+  color: #c8a04b;
+  font-family: inherit;
+  font-size: 12px;
+  padding: 4px 14px;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: background 0.12s, transform 0.1s;
+}
+button:hover { background: rgba(200,160,75,0.3); transform: scale(1.03); }

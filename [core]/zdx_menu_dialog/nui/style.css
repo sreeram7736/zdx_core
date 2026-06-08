@@ -1,0 +1,73 @@
+/* ── ZDX Menu Dialog ── */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { width: 100vw; height: 100vh; overflow: hidden; font-family: 'Poppins', sans-serif; }
+
+#dialog-wrap {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.4);
+}
+
+.dialog {
+  width: clamp(320px, 35vw, 520px);
+  background: #212121;
+  border-radius: 6px;
+  overflow: hidden;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+}
+
+.head {
+  background: #161616;
+  padding: 12px 16px;
+  color: #fff;
+  font-size: 15px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.body {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.dialog-input {
+  width: 100%;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 4px;
+  color: #fff;
+  font-family: inherit;
+  font-size: 14px;
+  padding: 8px 12px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+.dialog-input:focus { border-color: #c8a04b; }
+.dialog-textarea { resize: vertical; min-height: 90px; }
+
+.actions {
+  display: flex;
+  gap: 10px;
+  padding: 0 16px 16px;
+  justify-content: flex-end;
+}
+
+button {
+  padding: 8px 20px;
+  border: none;
+  border-radius: 4px;
+  font-family: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  transition: transform 0.15s, opacity 0.15s;
+}
+button:hover { transform: scale(1.04); opacity: 0.9; }
+
+.btn-submit { background: rgba(200,160,75,0.2); color: #c8a04b; border: 1px solid #c8a04b; }
+.btn-cancel { background: rgba(148,148,148,0.2); color: #ccc; }
