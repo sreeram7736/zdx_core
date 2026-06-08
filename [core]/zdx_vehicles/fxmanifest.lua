@@ -14,6 +14,3 @@ server_scripts {
     'server/main.lua'
 }
 
-dependencies {
-    'zdx_core'
-}

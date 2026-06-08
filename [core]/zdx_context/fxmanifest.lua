@@ -18,7 +18,3 @@ files {
     'nui/style.css',
     'nui/app.js',
 }
-
-dependencies {
-    'zdx_core',
-}

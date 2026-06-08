@@ -15,6 +15,5 @@ server_scripts {
 }
 
 dependencies {
-    'zdx_core',
     'ox_inventory'
 }
