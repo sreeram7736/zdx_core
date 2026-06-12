@@ -2,7 +2,7 @@ fx_version 'cerulean'
 game 'gta5'
 
 name 'zdx_core'
-description 'A lightweight cinematic core with RPG database and universal ESX/QB/QBox compatibility.'
+description 'ZDX Framework — Complete custom cinematic core with ESX/QB bridge compatibility.'
 version '1.0.0'
 lua54 'yes'
 
@@ -14,6 +14,8 @@ server_scripts {
     '@oxmysql/lib/MySQL.lua',
     'server/database.lua',
     'server/player.lua',
+    'server/api.lua',
+    'server/callbacks.lua',
     'server/main.lua',
     'server/commands.lua',
     'bridge/esx/server.lua',
@@ -21,7 +23,11 @@ server_scripts {
 }
 
 client_scripts {
+    'client/api.lua',
+    'client/callbacks.lua',
     'client/main.lua',
+    'client/npc.lua',
+    'client/cinematic.lua',
     'bridge/esx/client.lua',
     'bridge/qb/client.lua',
 }
@@ -29,5 +35,4 @@ client_scripts {
 dependencies {
     '/onesync',
     'oxmysql',
-    'es_extended',
 }

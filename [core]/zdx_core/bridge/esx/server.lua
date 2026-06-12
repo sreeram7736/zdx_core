@@ -1,7 +1,7 @@
 -- ══════════════════════════════════════════════════════════════
 -- ZDX Core: ESX Server Bridge
--- Provides full ESX Legacy compatibility so ESX scripts
--- can run without modification on zdx-core.
+-- Translates ZDX events/API into ESX Legacy format so
+-- third-party ESX scripts can run without modification.
 -- ══════════════════════════════════════════════════════════════
 
 ESX = {}
@@ -28,109 +28,102 @@ AddEventHandler('esx:getSharedObject', function(cb)
 end)
 
 -- ══════════════════════════════════════════════════════════════
--- ESX PLAYER FUNCTIONS
+-- LISTEN TO ZDX EVENTS → FIRE ESX EVENTS
 -- ══════════════════════════════════════════════════════════════
 
---- Get player from server id
----@param source number
----@return table|nil
+AddEventHandler('zdx:playerLoaded', function(playerId, zdxPlayer)
+    if zdxPlayer then
+        ESX.Players[playerId] = zdxPlayer
+        Core.playersByIdentifier[zdxPlayer.identifier] = zdxPlayer
+
+        -- Attach ESX compat wrappers to the player object
+        -- so ESX scripts calling xPlayer.getJob() etc. work
+        zdxPlayer.getJob = zdxPlayer.Functions.GetJob
+        zdxPlayer.getMoney = function() return zdxPlayer.accounts.money or 0 end
+        zdxPlayer.getAccounts = zdxPlayer.Functions.GetAccounts
+        zdxPlayer.getAccount = zdxPlayer.Functions.GetAccount
+        zdxPlayer.getInventory = zdxPlayer.Functions.GetInventory
+        zdxPlayer.getLoadout = zdxPlayer.Functions.GetLoadout
+        zdxPlayer.getCoords = zdxPlayer.Functions.GetCoords
+        zdxPlayer.getName = zdxPlayer.Functions.GetName
+        zdxPlayer.getIdentifier = zdxPlayer.Functions.GetIdentifier
+        zdxPlayer.getMeta = zdxPlayer.Functions.GetMetaData
+        zdxPlayer.getMaxWeight = zdxPlayer.Functions.GetMaxWeight
+        zdxPlayer.addMoney = function(amount, reason) return zdxPlayer.Functions.AddMoney('money', amount, reason) end
+        zdxPlayer.removeMoney = function(amount, reason) return zdxPlayer.Functions.RemoveMoney('money', amount, reason) end
+        zdxPlayer.addAccountMoney = zdxPlayer.Functions.AddAccountMoney
+        zdxPlayer.removeAccountMoney = zdxPlayer.Functions.RemoveAccountMoney
+        zdxPlayer.setAccountMoney = zdxPlayer.Functions.SetAccountMoney
+        zdxPlayer.setJob = function(job, grade) return zdxPlayer.Functions.SetJob(job, grade) end
+        zdxPlayer.setMeta = zdxPlayer.Functions.SetMetaData
+        zdxPlayer.showNotification = zdxPlayer.Functions.ShowNotification
+        zdxPlayer.triggerEvent = function(eventName, ...) TriggerClientEvent(eventName, zdxPlayer.source, ...) end
+        zdxPlayer.addInventoryItem = zdxPlayer.Functions.AddItem
+        zdxPlayer.removeInventoryItem = zdxPlayer.Functions.RemoveItem
+        zdxPlayer.getInventoryItem = zdxPlayer.Functions.GetItemByName
+        zdxPlayer.set = function(key, value) zdxPlayer.metadata[key] = value end
+        zdxPlayer.get = function(key) return zdxPlayer.metadata[key] end
+        zdxPlayer.setName = function(name) zdxPlayer.name = name end
+        zdxPlayer.kick = function(reason) DropPlayer(tostring(zdxPlayer.source), reason or 'Kicked') end
+
+        -- Fire ESX load event for ESX scripts
+        TriggerEvent('esx:playerLoaded', playerId, zdxPlayer, false)
+    end
+end)
+
+AddEventHandler('zdx:playerDropped', function(playerId, reason)
+    ESX.Players[playerId] = nil
+    TriggerEvent('esx:playerDropped', playerId, reason)
+end)
+
+AddEventHandler('zdx:jobUpdate', function(source, job, oldJob)
+    TriggerEvent('esx:setJob', source, job, oldJob)
+end)
+
+-- ══════════════════════════════════════════════════════════════
+-- ESX PLAYER FUNCTIONS (delegate to ZDX)
+-- ══════════════════════════════════════════════════════════════
+
 function ESX.GetPlayerFromId(source)
-    return GetZDXPlayer(source)
+    return ZDX.GetPlayer(source)
 end
 
---- Get player from identifier
----@param identifier string
----@return table|nil
 function ESX.GetPlayerFromIdentifier(identifier)
-    return GetZDXPlayerByIdentifier(identifier)
+    return ZDX.GetPlayerByIdentifier(identifier)
 end
 
---- Get all extended players
----@return table
 function ESX.GetExtendedPlayers(key, val)
-    local players = {}
-    for src, zdxPlayer in pairs(ZDX.Players) do
-        if key then
-            if key == 'job' and zdxPlayer.job.name == val then
-                players[#players+1] = zdxPlayer
-            elseif key == 'group' and (zdxPlayer.metadata.group or 'user') == val then
-                players[#players+1] = zdxPlayer
-            end
-        else
-            players[#players+1] = zdxPlayer
-        end
-    end
-    return players
+    return ZDX.GetExtendedPlayers(key, val)
 end
 
---- Get all player sources
----@return table
 function ESX.GetPlayers()
-    local sources = {}
-    for src in pairs(ZDX.Players) do
-        sources[#sources+1] = src
-    end
-    return sources
+    return ZDX.GetPlayers()
 end
 
---- Check if a job exists
----@param job string
----@param grade string|number
----@return boolean
 function ESX.DoesJobExist(job, grade)
-    grade = tonumber(grade) or 0
-    if Config.Jobs[job] and Config.Jobs[job].grades[grade] then
-        return true
-    end
-    return false
+    return ZDX.DoesJobExist(job, grade)
 end
 
---- Register a useable item
----@param item string
----@param cb function
 function ESX.RegisterUsableItem(item, cb)
-    Core.UsableItemsCallbacks[item] = cb
+    ZDX.RegisterUsableItem(item, cb)
 end
 
---- Use an item
----@param source number
----@param item string
 function ESX.UseItem(source, item)
-    if Core.UsableItemsCallbacks[item] then
-        Core.UsableItemsCallbacks[item](source)
-    end
+    ZDX.UseItem(source, item)
 end
 
---- Get item label
----@param item string
----@return string
 function ESX.GetItemLabel(item)
-    if ESX.Items[item] then
-        return ESX.Items[item].label
-    end
-    return item
+    return ZDX.GetItemLabel(item)
 end
 
 --- Register server callback (ESX style)
----@param name string
----@param cb function
 function ESX.RegisterServerCallback(name, cb)
-    RegisterNetEvent(('esx_callback:%s'):format(name), function(...)
-        local src = source
-        cb(src, function(...)
-            TriggerClientEvent(('esx_callback_response:%s'):format(name), src, ...)
-        end, ...)
-    end)
+    ZDX.RegisterCallback(name, cb)
 end
 
 --- Trigger server callback from server
----@param name string
----@param source number
----@param cb function
 function ESX.TriggerServerCallback(name, source, cb, ...)
-    RegisterNetEvent(('esx_callback:%s'):format(name), function(...)
-        cb(...)
-    end)
+    ZDX.TriggerCallback(name, source, cb, ...)
 end
 
 --- Create a pickup (stub)
@@ -139,125 +132,77 @@ function ESX.CreatePickup(pickupType, name, count, label, playerId, components, 
 end
 
 --- Get weapon label
----@param weaponName string
----@return string
 function ESX.GetWeaponLabel(weaponName)
     return weaponName
 end
 
 --- Get weapon from name
----@param weaponName string
----@return boolean, table|nil
 function ESX.GetWeapon(weaponName)
     return false, nil
 end
 
 --- Get identifier from source
----@param source number
----@return string|nil
 function ESX.GetIdentifier(source)
-    return GetPlayerIdentifierByType(source, 'license2') or GetPlayerIdentifierByType(source, 'license')
+    return ZDX.GetIdentifier(source)
 end
 
---- Math utilities
+-- ══════════════════════════════════════════════════════════════
+-- MATH / TABLE UTILITIES (delegate to ZDX)
+-- ══════════════════════════════════════════════════════════════
+
 ESX.Math = {}
 function ESX.Math.Round(num, numDecimalPlaces)
-    if not numDecimalPlaces then return math.floor(num + 0.5) end
-    local power = 10 ^ numDecimalPlaces
-    return math.floor((num * power) + 0.5) / power
+    return ZDX.Math.Round(num, numDecimalPlaces)
 end
 
 function ESX.Math.GroupDigits(value)
-    local left, num, right = string.match(tostring(value), '^([^%d]*%d)(%d*)(.-)$')
-    return left .. (num:reverse():gsub('(%d%d%d)', '%1,'):reverse()) .. right
+    return ZDX.Math.GroupDigits(value)
 end
 
 function ESX.Math.Random(lowest, highest)
-    return math.random(lowest, highest)
+    return ZDX.Math.Random(lowest, highest)
 end
 
---- Table utilities
 ESX.Table = {}
 function ESX.Table.Clone(t)
-    local clone = {}
-    for k, v in pairs(t) do
-        if type(v) == 'table' then
-            clone[k] = ESX.Table.Clone(v)
-        else
-            clone[k] = v
-        end
-    end
-    return clone
+    return ZDX.Table.Clone(t)
 end
 
---- OneSync utilities
+-- ══════════════════════════════════════════════════════════════
+-- ONESYNC UTILITIES (delegate to ZDX)
+-- ══════════════════════════════════════════════════════════════
+
 ESX.OneSync = {}
 function ESX.OneSync.SpawnVehicle(model, coords, heading, props, cb)
-    local veh = CreateVehicleServerSetter(model, 'automobile', coords.x, coords.y, coords.z, heading or 0.0)
-    while not DoesEntityExist(veh) do Wait(0) end
-    local netId = NetworkGetNetworkIdFromEntity(veh)
-    if cb then cb(netId) end
-    return netId
+    return ZDX.OneSync.SpawnVehicle(model, coords, heading, props, cb)
 end
 
 function ESX.OneSync.GetPlayersInArea(coords, maxDistance)
-    local players = {}
-    for _, playerId in ipairs(GetPlayers()) do
-        local ped = GetPlayerPed(playerId)
-        local playerCoords = GetEntityCoords(ped)
-        if #(playerCoords - coords) <= maxDistance then
-            players[#players+1] = tonumber(playerId)
-        end
-    end
-    return players
+    return ZDX.OneSync.GetPlayersInArea(coords, maxDistance)
 end
 
 function ESX.OneSync.GetPedsInArea(coords, maxDistance)
-    return {}
+    return ZDX.OneSync.GetPedsInArea(coords, maxDistance)
 end
 
 function ESX.OneSync.GetVehiclesInArea(coords, maxDistance)
-    return {}
+    return ZDX.OneSync.GetVehiclesInArea(coords, maxDistance)
 end
 
---- Admin check
+-- ══════════════════════════════════════════════════════════════
+-- ADMIN / SAVE (delegate to ZDX)
+-- ══════════════════════════════════════════════════════════════
+
 function Core.IsPlayerAdmin(source)
-    return IsPlayerAceAllowed(tostring(source), 'command')
+    return ZDX.IsPlayerAdmin(source)
 end
 
---- Save single player
 function Core.SavePlayer(xPlayer, cb)
-    if xPlayer and xPlayer.Functions then
-        xPlayer.Functions.Save()
-    end
-    if cb then cb() end
+    ZDX.SavePlayer(xPlayer, cb)
 end
 
---- Save all players
 function Core.SavePlayers()
-    for _, zdxPlayer in pairs(ZDX.Players) do
-        zdxPlayer.Functions.Save()
-    end
+    ZDX.SavePlayers()
 end
 
---- Track ESX players when zdx players load
-AddEventHandler('esx:playerLoaded', function(playerId, xPlayer)
-    if xPlayer then
-        ESX.Players[playerId] = xPlayer
-        Core.playersByIdentifier[xPlayer.identifier] = xPlayer
-    end
-end)
-
-AddEventHandler('esx:playerDropped', function(playerId)
-    ESX.Players[playerId] = nil
-end)
-
--- ══════════════════════════════════════════════════════════════
--- GLOBAL STATE INIT
--- ══════════════════════════════════════════════════════════════
-AddEventHandler('onResourceStart', function(resource)
-    if resource ~= GetCurrentResourceName() then return end
-    GlobalState['playerCount'] = 0
-end)
-
-print('^2[ZDX-CORE]^0 ESX Bridge loaded.')
+print('^2[ZDX]^0 ESX Server Bridge loaded.')

@@ -1,6 +1,7 @@
 -- ══════════════════════════════════════════════════════════════
--- ZDX Core: Player Class (Server)
--- Full RPG player with money, job, gang, metadata
+-- ZDX Framework: Player Class (Server)
+-- Full RPG player with money, job, gang, metadata.
+-- All events are ZDX-native. Bridges translate to ESX/QB.
 -- ══════════════════════════════════════════════════════════════
 
 ZDX = ZDX or {}
@@ -82,7 +83,7 @@ function CreateZDXPlayer(source, identifier, dbData)
     self.name = dbData.name or GetPlayerName(source)
     self.license = identifier
 
-    -- ── Character Info (QB Compat) ──
+    -- ── Character Info ──
     self.charinfo = {
         firstname = dbData.firstname or 'John',
         lastname = dbData.lastname or 'Doe',
@@ -94,7 +95,7 @@ function CreateZDXPlayer(source, identifier, dbData)
         cid = 1,
     }
 
-    -- ── PlayerData (unified table for QB bridge) ──
+    -- ── PlayerData (unified table) ──
     self.PlayerData = {}
 
     -- ── Money / Accounts ──
@@ -146,8 +147,8 @@ function CreateZDXPlayer(source, identifier, dbData)
         if not amount or amount <= 0 then return false end
         self.accounts[moneyType] = self.accounts[moneyType] + amount
         self.Functions.UpdatePlayerData()
-        TriggerEvent('QBCore:Server:OnMoneyChange', self.source, moneyType, amount, 'add', reason or 'unknown')
-        TriggerClientEvent('QBCore:Client:OnMoneyChange', self.source, moneyType, amount, 'add', reason or 'unknown')
+        TriggerEvent('zdx:moneyChange', self.source, moneyType, amount, 'add', reason or 'unknown')
+        TriggerClientEvent('zdx:client:moneyChange', self.source, moneyType, amount, 'add', reason or 'unknown')
         return true
     end
 
@@ -158,8 +159,8 @@ function CreateZDXPlayer(source, identifier, dbData)
         if self.accounts[moneyType] < amount then return false end
         self.accounts[moneyType] = self.accounts[moneyType] - amount
         self.Functions.UpdatePlayerData()
-        TriggerEvent('QBCore:Server:OnMoneyChange', self.source, moneyType, amount, 'remove', reason or 'unknown')
-        TriggerClientEvent('QBCore:Client:OnMoneyChange', self.source, moneyType, amount, 'remove', reason or 'unknown')
+        TriggerEvent('zdx:moneyChange', self.source, moneyType, amount, 'remove', reason or 'unknown')
+        TriggerClientEvent('zdx:client:moneyChange', self.source, moneyType, amount, 'remove', reason or 'unknown')
         return true
     end
 
@@ -185,9 +186,8 @@ function CreateZDXPlayer(source, identifier, dbData)
         local oldJob = self.job
         self.job = newJob
         self.Functions.UpdatePlayerData()
-        TriggerEvent('QBCore:Server:OnJobUpdate', self.source, self.job)
-        TriggerClientEvent('QBCore:Client:OnJobUpdate', self.source, self.job)
-        TriggerEvent('esx:setJob', self.source, self.job, oldJob)
+        TriggerEvent('zdx:jobUpdate', self.source, self.job, oldJob)
+        TriggerClientEvent('zdx:client:jobUpdate', self.source, self.job)
         return true
     end
 
@@ -196,12 +196,25 @@ function CreateZDXPlayer(source, identifier, dbData)
         self.Functions.UpdatePlayerData()
     end
 
+    function self.Functions.GetJob()
+        return {
+            id = 0,
+            name = self.job.name,
+            label = self.job.label,
+            type = self.job.type,
+            grade = self.job.grade.level,
+            grade_name = self.job.grade.name,
+            grade_label = self.job.grade.label or self.job.grade.name,
+            grade_salary = self.job.payment,
+        }
+    end
+
     -- ── Gang Functions ──
     function self.Functions.SetGang(gangName, grade)
         self.gang = buildGangObject(gangName, grade or 0)
         self.Functions.UpdatePlayerData()
-        TriggerEvent('QBCore:Server:OnGangUpdate', self.source, self.gang)
-        TriggerClientEvent('QBCore:Client:OnGangUpdate', self.source, self.gang)
+        TriggerEvent('zdx:gangUpdate', self.source, self.gang)
+        TriggerClientEvent('zdx:client:gangUpdate', self.source, self.gang)
         return true
     end
 
@@ -218,14 +231,14 @@ function CreateZDXPlayer(source, identifier, dbData)
 
     -- ── Notify ──
     function self.Functions.Notify(msg, nType, duration)
-        TriggerClientEvent('QBCore:Notify', self.source, msg, nType or 'primary', duration or 5000)
+        TriggerClientEvent('zdx:showNotification', self.source, msg, nType or 'info', duration or 5000)
     end
 
-    -- ── ESX Compat: Accounts (addAccountMoney, etc.) ──
+    -- ── Account Functions ──
     function self.Functions.GetAccount(accountName)
         for name, money in pairs(self.accounts) do
             if name == accountName then
-                return { name = name, money = money, label = name:sub(1,1):upper()..name:sub(2) }
+                return { name = name, money = money, label = name:sub(1, 1):upper() .. name:sub(2) }
             end
         end
         return nil
@@ -234,7 +247,7 @@ function CreateZDXPlayer(source, identifier, dbData)
     function self.Functions.GetAccounts()
         local result = {}
         for name, money in pairs(self.accounts) do
-            result[#result+1] = { name = name, money = money, label = name:sub(1,1):upper()..name:sub(2) }
+            result[#result + 1] = { name = name, money = money, label = name:sub(1, 1):upper() .. name:sub(2) }
         end
         return result
     end
@@ -251,21 +264,7 @@ function CreateZDXPlayer(source, identifier, dbData)
         return self.Functions.SetMoney(accountName, amount, reason)
     end
 
-    -- ── ESX Compat: Job ──
-    function self.Functions.GetJob()
-        return {
-            id = 0,
-            name = self.job.name,
-            label = self.job.label,
-            type = self.job.type,
-            grade = self.job.grade.level,
-            grade_name = self.job.grade.name,
-            grade_label = self.job.grade.label or self.job.grade.name,
-            grade_salary = self.job.payment,
-        }
-    end
-
-    -- ── ESX Compat: Identity ──
+    -- ── Identity ──
     function self.Functions.GetName()
         return self.charinfo.firstname .. ' ' .. self.charinfo.lastname
     end
@@ -274,7 +273,7 @@ function CreateZDXPlayer(source, identifier, dbData)
         return self.identifier
     end
 
-    -- ── ESX Compat: Coords ──
+    -- ── Coords ──
     function self.Functions.GetCoords(useVector)
         local ped = GetPlayerPed(self.source)
         if ped and ped > 0 then
@@ -287,9 +286,9 @@ function CreateZDXPlayer(source, identifier, dbData)
         return self.position
     end
 
-    -- ── ESX Compat: showNotification ──
+    -- ── Notification ──
     function self.Functions.ShowNotification(msg, flash, saveToBrief, hudColorIndex)
-        TriggerClientEvent('esx:showNotification', self.source, msg, flash, saveToBrief, hudColorIndex)
+        TriggerClientEvent('zdx:showNotification', self.source, msg)
     end
 
     -- ── Inventory stubs (routes to ox_inventory if available) ──
@@ -350,7 +349,7 @@ function CreateZDXPlayer(source, identifier, dbData)
         ZDX_DB.SavePlayer(self.PlayerData)
     end
 
-    -- ── Build the unified PlayerData table (used by QB bridge) ──
+    -- ── Build the unified PlayerData table ──
     function self.Functions.BuildPlayerData()
         self.PlayerData = {
             source = self.source,
@@ -374,39 +373,14 @@ function CreateZDXPlayer(source, identifier, dbData)
     -- ── Sync PlayerData to client ──
     function self.Functions.UpdatePlayerData()
         self.Functions.BuildPlayerData()
-        TriggerEvent('QBCore:Player:SetPlayerData', self.PlayerData)
-        TriggerClientEvent('QBCore:Player:SetPlayerData', self.source, self.PlayerData)
+        TriggerEvent('zdx:playerDataUpdate', self.source, self.PlayerData)
+        TriggerClientEvent('zdx:client:playerDataUpdate', self.source, self.PlayerData)
     end
 
-    -- ── ESX compat wrappers (method-style calls like xPlayer.getJob()) ──
-    -- These are set as direct fields so ESX scripts calling xPlayer.getJob() work
-    self.getJob = self.Functions.GetJob
-    self.getMoney = function() return self.accounts.money or 0 end
-    self.getAccounts = self.Functions.GetAccounts
-    self.getAccount = self.Functions.GetAccount
-    self.getInventory = self.Functions.GetInventory
-    self.getLoadout = self.Functions.GetLoadout
-    self.getCoords = self.Functions.GetCoords
-    self.getName = self.Functions.GetName
-    self.getIdentifier = self.Functions.GetIdentifier
-    self.getMeta = self.Functions.GetMetaData
-    self.getMaxWeight = self.Functions.GetMaxWeight
-    self.addMoney = function(amount, reason) return self.Functions.AddMoney('money', amount, reason) end
-    self.removeMoney = function(amount, reason) return self.Functions.RemoveMoney('money', amount, reason) end
-    self.addAccountMoney = self.Functions.AddAccountMoney
-    self.removeAccountMoney = self.Functions.RemoveAccountMoney
-    self.setAccountMoney = self.Functions.SetAccountMoney
-    self.setJob = function(job, grade) return self.Functions.SetJob(job, grade) end
-    self.setMeta = self.Functions.SetMetaData
-    self.showNotification = self.Functions.ShowNotification
-    self.triggerEvent = function(eventName, ...) TriggerClientEvent(eventName, self.source, ...) end
-    self.addInventoryItem = self.Functions.AddItem
-    self.removeInventoryItem = self.Functions.RemoveItem
-    self.getInventoryItem = self.Functions.GetItemByName
-    self.set = function(key, value) self.metadata[key] = value end
-    self.get = function(key) return self.metadata[key] end
-    self.setName = function(name) self.name = name end
-    self.kick = function(reason) DropPlayer(tostring(self.source), reason or 'Kicked') end
+    -- ── Kick ──
+    function self.Functions.Kick(reason)
+        DropPlayer(tostring(self.source), reason or 'Kicked')
+    end
 
     -- ── Initialize PlayerData ──
     self.Functions.BuildPlayerData()

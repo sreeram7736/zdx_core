@@ -1,246 +1,147 @@
 -- ══════════════════════════════════════════════════════════════
 -- ZDX Core: QBCore Client Bridge
--- Provides full QB-Core / QBox client compatibility so QB scripts
--- can run without modification on zdx-core.
+-- Translates ZDX client events/API into QBCore format
+-- so third-party QB client scripts work without modification.
 -- ══════════════════════════════════════════════════════════════
 
 QBCore = {}
-QBCore.Config = Config
-QBCore.Shared = {}
-QBCore.Shared.Jobs = Config.Jobs
-QBCore.Shared.Gangs = Config.Gangs
-QBCore.Shared.Items = {}
-QBCore.Shared.Vehicles = {}
-QBCore.Shared.Weapons = {}
-QBCore.Shared.Locations = {}
-
-QBCore.PlayerData = {}
 QBCore.Functions = {}
-QBCore.ClientCallbacks = {}
-QBCore.ServerCallbacks = {}
+QBCore.PlayerData = {}
+QBCore.Shared = {
+    Vehicles = {},
+    Items = {},
+    Jobs = Config.Jobs,
+    Gangs = Config.Gangs
+}
 
--- ══════════════════════════════════════════════════════════════
--- CORE OBJECT EXPORT
--- ══════════════════════════════════════════════════════════════
-
-local function getCoreObject()
+-- ── The shared object that QB scripts request ──
+exports('GetCoreObject', function()
     return QBCore
-end
+end)
 
-exports('GetCoreObject', getCoreObject)
+exports('GetSharedObject', function()
+    return QBCore
+end)
 
 -- ══════════════════════════════════════════════════════════════
--- PLAYER DATA
+-- LISTEN TO ZDX EVENTS → FIRE QB EVENTS
+-- ══════════════════════════════════════════════════════════════
+
+AddEventHandler('zdx:playerLoaded', function(playerData)
+    QBCore.PlayerData = playerData or ZDX.PlayerData
+    TriggerEvent('QBCore:Client:OnPlayerLoaded')
+end)
+
+AddEventHandler('zdx:client:playerDataUpdate', function(playerData)
+    QBCore.PlayerData = playerData
+    TriggerEvent('QBCore:Player:SetPlayerData', playerData)
+end)
+
+AddEventHandler('zdx:client:playerUnloaded', function()
+    QBCore.PlayerData = {}
+    TriggerEvent('QBCore:Client:OnPlayerUnload')
+end)
+
+AddEventHandler('zdx:client:jobUpdate', function(jobInfo)
+    if QBCore.PlayerData then
+        QBCore.PlayerData.job = jobInfo
+    end
+    TriggerEvent('QBCore:Client:OnJobUpdate', jobInfo)
+end)
+
+AddEventHandler('zdx:client:gangUpdate', function(gangInfo)
+    if QBCore.PlayerData then
+        QBCore.PlayerData.gang = gangInfo
+    end
+    TriggerEvent('QBCore:Client:OnGangUpdate', gangInfo)
+end)
+
+AddEventHandler('zdx:client:moneyChange', function(moneyType, amount, changeType, reason)
+    TriggerEvent('QBCore:Client:OnMoneyChange', moneyType, amount, changeType, reason)
+end)
+
+-- ══════════════════════════════════════════════════════════════
+-- PLAYER DATA FUNCTIONS (delegate to ZDX)
 -- ══════════════════════════════════════════════════════════════
 
 function QBCore.Functions.GetPlayerData(cb)
-    local data = ZDX.PlayerData or QBCore.PlayerData
-    if cb then cb(data) end
-    return data
-end
-
--- Sync QB PlayerData with ZDX
-RegisterNetEvent('QBCore:Client:OnPlayerLoaded', function()
-    QBCore.PlayerData = ZDX.PlayerData or {}
-end)
-
-RegisterNetEvent('QBCore:Player:SetPlayerData', function(val)
-    QBCore.PlayerData = val
-end)
-
-RegisterNetEvent('QBCore:Client:OnPlayerUnload', function()
-    QBCore.PlayerData = {}
-end)
-
-RegisterNetEvent('QBCore:Client:OnJobUpdate', function(jobInfo)
-    QBCore.PlayerData.job = jobInfo
-end)
-
-RegisterNetEvent('QBCore:Client:OnGangUpdate', function(gangInfo)
-    QBCore.PlayerData.gang = gangInfo
-end)
-
--- ══════════════════════════════════════════════════════════════
--- CALLBACKS (QBCore Style)
--- ══════════════════════════════════════════════════════════════
-
-function QBCore.Functions.CreateClientCallback(name, cb)
-    QBCore.ClientCallbacks[name] = cb
-end
-
-function QBCore.Functions.TriggerClientCallback(name, cb, ...)
-    if QBCore.ClientCallbacks[name] then
-        QBCore.ClientCallbacks[name](cb, ...)
+    if cb then
+        cb(ZDX.GetPlayerData())
+    else
+        return ZDX.GetPlayerData()
     end
 end
+
+-- ══════════════════════════════════════════════════════════════
+-- CALLBACKS (delegate to ZDX)
+-- ══════════════════════════════════════════════════════════════
 
 function QBCore.Functions.TriggerCallback(name, cb, ...)
-    QBCore.ServerCallbacks[name] = cb
-    TriggerServerEvent('QBCore:Server:TriggerCallback', name, ...)
-end
-
-RegisterNetEvent('QBCore:Client:TriggerCallback', function(name, ...)
-    if QBCore.ServerCallbacks[name] then
-        QBCore.ServerCallbacks[name](...)
-        QBCore.ServerCallbacks[name] = nil
-    end
-end)
-
-RegisterNetEvent('QBCore:Client:TriggerClientCallback', function(name, ...)
-    if QBCore.ClientCallbacks[name] then
-        QBCore.ClientCallbacks[name](function(...)
-            TriggerServerEvent('QBCore:Server:TriggerClientCallback', name, ...)
-        end, ...)
-    end
-end)
-
--- ══════════════════════════════════════════════════════════════
--- NOTIFICATION
--- ══════════════════════════════════════════════════════════════
-
-function QBCore.Functions.Notify(text, nType, duration)
-    SetNotificationTextEntry('STRING')
-    if type(text) == 'table' then
-        AddTextComponentString(text.text or text.caption or 'Notification')
-    else
-        AddTextComponentString(tostring(text))
-    end
-    DrawNotification(false, true)
+    ZDX.TriggerCallback(name, cb, ...)
 end
 
 -- ══════════════════════════════════════════════════════════════
--- VEHICLE UTILITIES
+-- NOTIFICATIONS / UI (delegate to ZDX)
 -- ══════════════════════════════════════════════════════════════
 
-function QBCore.Functions.SpawnVehicle(model, cb, coords, isNetwork, teleportInto)
-    local hash = type(model) == 'number' and model or joaat(model)
-    RequestModel(hash)
-    while not HasModelLoaded(hash) do Wait(0) end
+function QBCore.Functions.Notify(text, texttype, length)
+    ZDX.ShowNotification(text)
+end
 
-    local ped = PlayerPedId()
-    coords = coords or GetEntityCoords(ped)
+-- ══════════════════════════════════════════════════════════════
+-- GAME UTILITIES (delegate to ZDX)
+-- ══════════════════════════════════════════════════════════════
 
-    local vehicle = CreateVehicle(hash, coords.x, coords.y, coords.z, GetEntityHeading(ped), isNetwork ~= false, false)
-    SetModelAsNoLongerNeeded(hash)
-
-    if teleportInto then
-        TaskWarpPedIntoVehicle(ped, vehicle, -1)
-    end
-
-    if cb then cb(vehicle) end
+function QBCore.Functions.SpawnVehicle(model, cb, coords, isnetworked)
+    return ZDX.Game.SpawnLocalVehicle(model, coords, 0.0, cb)
 end
 
 function QBCore.Functions.DeleteVehicle(vehicle)
-    SetEntityAsMissionEntity(vehicle, true, true)
-    DeleteVehicle(vehicle)
+    ZDX.Game.DeleteVehicle(vehicle)
 end
 
 function QBCore.Functions.GetClosestVehicle(coords)
-    local vehicles = GetGamePool('CVehicle')
-    local closestDist = -1
-    local closestVeh = -1
-    coords = coords or GetEntityCoords(PlayerPedId())
-    for _, vehicle in ipairs(vehicles) do
-        local vehCoords = GetEntityCoords(vehicle)
-        local dist = #(coords - vehCoords)
-        if closestDist == -1 or dist < closestDist then
-            closestDist = dist
-            closestVeh = vehicle
-        end
-    end
-    return closestVeh, closestDist
+    local veh, dist = ZDX.Game.GetClosestVehicle(coords)
+    return veh, dist
 end
 
-function QBCore.Functions.GetVehicleProperties(vehicle)
-    if DoesEntityExist(vehicle) then
-        return {
-            model = GetEntityModel(vehicle),
-            plate = GetVehicleNumberPlateText(vehicle),
-            color1 = {GetVehicleColours(vehicle)},
-        }
-    end
-    return {}
+function QBCore.Functions.GetClosestPlayer(coords)
+    local player, dist = ZDX.Game.GetClosestPlayer(coords)
+    return player, dist
 end
 
-function QBCore.Functions.SetVehicleProperties(vehicle, props)
-    if not DoesEntityExist(vehicle) then return end
-    if props.plate then SetVehicleNumberPlateText(vehicle, props.plate) end
+function QBCore.Functions.GetPlayersFromCoords(coords, distance)
+    return ZDX.Game.GetPlayersInArea(coords, distance)
+end
+
+function QBCore.Functions.GetVehiclesInArea(coords, distance)
+    return ZDX.Game.GetVehiclesInArea(coords, distance)
 end
 
 function QBCore.Functions.GetPlate(vehicle)
-    if vehicle and vehicle ~= 0 then
-        return string.gsub(GetVehicleNumberPlateText(vehicle), '^%s+', ''):gsub('%s+$', '')
-    end
-    return nil
+    return ZDX.Game.GetPlate(vehicle)
+end
+
+function QBCore.Functions.GetVehicleProperties(vehicle)
+    return ZDX.Game.GetVehicleProperties(vehicle)
+end
+
+function QBCore.Functions.SetVehicleProperties(vehicle, props)
+    ZDX.Game.SetVehicleProperties(vehicle, props)
 end
 
 -- ══════════════════════════════════════════════════════════════
--- PED / PLAYER UTILITIES
+-- MATH / TABLE (delegate to ZDX)
 -- ══════════════════════════════════════════════════════════════
 
-function QBCore.Functions.GetClosestPlayer(coords)
-    local players = GetActivePlayers()
-    local closestDist = -1
-    local closestPlayer = -1
-    local myPed = PlayerPedId()
-    coords = coords or GetEntityCoords(myPed)
-    for _, playerId in ipairs(players) do
-        local ped = GetPlayerPed(playerId)
-        if ped ~= myPed then
-            local pedCoords = GetEntityCoords(ped)
-            local dist = #(coords - pedCoords)
-            if closestDist == -1 or dist < closestDist then
-                closestDist = dist
-                closestPlayer = playerId
-            end
-        end
-    end
-    return closestPlayer, closestDist
+QBCore.Shared.Math = {}
+
+function QBCore.Shared.Round(value, numDecimalPlaces)
+    return ZDX.Math.Round(value, numDecimalPlaces)
 end
 
-function QBCore.Functions.GetPlayersFromCoords(coords, maxDist)
-    local players = {}
-    local myPed = PlayerPedId()
-    coords = coords or GetEntityCoords(myPed)
-    maxDist = maxDist or 5.0
-    for _, playerId in ipairs(GetActivePlayers()) do
-        local ped = GetPlayerPed(playerId)
-        if ped ~= myPed then
-            local pedCoords = GetEntityCoords(ped)
-            if #(coords - pedCoords) <= maxDist then
-                players[#players+1] = playerId
-            end
-        end
-    end
-    return players
+function QBCore.Shared.GroupDigits(value)
+    return ZDX.Math.GroupDigits(value)
 end
 
--- ══════════════════════════════════════════════════════════════
--- PROGRESS BAR (Stub)
--- ══════════════════════════════════════════════════════════════
-
-function QBCore.Functions.Progressbar(name, label, duration, useWhileDead, canCancel, disableControls, animation, prop, propTwo, onFinish, onCancel)
-    -- Stub: wait for duration then fire callback
-    CreateThread(function()
-        Wait(duration)
-        if onFinish then onFinish() end
-    end)
-end
-
--- ══════════════════════════════════════════════════════════════
--- DEBUG
--- ══════════════════════════════════════════════════════════════
-
-function QBCore.Debug(_, obj)
-    print(json.encode(obj, { indent = true }))
-end
-
--- ══════════════════════════════════════════════════════════════
--- HAS KEYS (Vehicle Keys compat stub)
--- ══════════════════════════════════════════════════════════════
-
-function QBCore.Functions.HasKeys(plate, vehicle)
-    return true -- Cinematic: always has keys
-end
-
-print('^2[ZDX-CORE]^0 QBCore Client Bridge loaded.')
+print('^2[ZDX]^0 QBCore Client Bridge loaded.')

@@ -1,12 +1,9 @@
 -- ══════════════════════════════════════════════════════════════
--- ZDX Core: Client Main
--- Handles spawning, model loading, and fires framework load events
--- NO "awaiting script" - we handle everything natively.
+-- ZDX Framework: Client Main
+-- Handles spawning, model loading, and fires ZDX load events.
+-- Bridges translate these into ESX/QB events for compat.
+-- NO "awaiting script" — we handle everything natively.
 -- ══════════════════════════════════════════════════════════════
-
-ZDX = ZDX or {}
-ZDX.PlayerData = {}
-ZDX.IsLoggedIn = false
 
 -- ── Wait for network activation and signal server ──
 CreateThread(function()
@@ -36,7 +33,7 @@ RegisterNetEvent('zdx_core:client:spawnPlayer', function(spawnCoords, modelName,
     while not HasModelLoaded(model) do
         Wait(0)
         if GetGameTimer() > timeout then
-            print('^1[ZDX-CORE]^0 Model load timed out, using fallback.')
+            print('^1[ZDX]^0 Model load timed out, using fallback.')
             model = joaat('mp_m_freemode_01')
             RequestModel(model)
             while not HasModelLoaded(model) do Wait(0) end
@@ -85,48 +82,44 @@ RegisterNetEvent('zdx_core:client:spawnPlayer', function(spawnCoords, modelName,
     end
 
     -- ══════════════════════════════════════════════════════════
-    -- FIRE FRAMEWORK LOAD EVENTS (ESX & QB Compat)
+    -- FIRE ZDX NATIVE LOAD EVENT
+    -- Bridges listen for this and fire ESX/QB events
     -- ══════════════════════════════════════════════════════════
+    TriggerEvent('zdx:playerLoaded', ZDX.PlayerData)
 
-    -- QB / QBox
-    TriggerEvent('QBCore:Client:OnPlayerLoaded')
-
-    -- ESX
-    TriggerEvent('esx:playerLoaded', ZDX.PlayerData, false, {})
-
-    -- QB statebag
+    -- State bag
     LocalPlayer.state:set('isLoggedIn', true, false)
 end)
 
 -- ══════════════════════════════════════════════════════════════
--- PLAYER DATA SYNC
+-- ZDX PLAYER DATA SYNC
 -- ══════════════════════════════════════════════════════════════
 
-RegisterNetEvent('QBCore:Player:SetPlayerData', function(val)
+RegisterNetEvent('zdx:client:playerDataUpdate', function(val)
     local invokingResource = GetInvokingResource()
     if invokingResource and invokingResource ~= GetCurrentResourceName() then return end
     ZDX.PlayerData = val
 end)
 
-RegisterNetEvent('QBCore:Client:OnPlayerUnload', function()
+RegisterNetEvent('zdx:client:playerUnloaded', function()
     ZDX.IsLoggedIn = false
     ZDX.PlayerData = {}
 end)
 
-RegisterNetEvent('QBCore:Client:OnJobUpdate', function(jobInfo)
+RegisterNetEvent('zdx:client:jobUpdate', function(jobInfo)
     if ZDX.PlayerData then
         ZDX.PlayerData.job = jobInfo
     end
 end)
 
-RegisterNetEvent('QBCore:Client:OnGangUpdate', function(gangInfo)
+RegisterNetEvent('zdx:client:gangUpdate', function(gangInfo)
     if ZDX.PlayerData then
         ZDX.PlayerData.gang = gangInfo
     end
 end)
 
-RegisterNetEvent('QBCore:Client:OnMoneyChange', function(moneyType, amount, changeType, reason)
-    -- Other scripts can listen to this
+RegisterNetEvent('zdx:client:moneyChange', function(moneyType, amount, changeType, reason)
+    -- Other scripts can listen to this for UI updates, etc.
 end)
 
 -- ══════════════════════════════════════════════════════════════
@@ -180,27 +173,18 @@ RegisterNetEvent('zdx_core:client:setModel', function(modelName)
 end)
 
 -- ══════════════════════════════════════════════════════════════
--- ESX NOTIFICATION HANDLER
+-- ZDX NOTIFICATION HANDLER
 -- ══════════════════════════════════════════════════════════════
 
-RegisterNetEvent('esx:showNotification', function(msg)
-    SetNotificationTextEntry('STRING')
-    AddTextComponentString(msg)
-    DrawNotification(false, true)
-end)
-
--- ══════════════════════════════════════════════════════════════
--- QB NOTIFICATION HANDLER
--- ══════════════════════════════════════════════════════════════
-
-RegisterNetEvent('QBCore:Notify', function(text, nType, duration)
-    SetNotificationTextEntry('STRING')
-    if type(text) == 'table' then
-        AddTextComponentString(text.text or 'Notification')
+RegisterNetEvent('zdx:showNotification', function(msg, nType, duration)
+    -- Use zdx_notify if available, otherwise fallback to native
+    if GetResourceState('zdx_notify') == 'started' then
+        exports['zdx_notify']:Notify(nType or 'info', duration or 5000, msg)
     else
-        AddTextComponentString(tostring(text))
+        SetNotificationTextEntry('STRING')
+        AddTextComponentString(tostring(msg))
+        DrawNotification(false, true)
     end
-    DrawNotification(false, true)
 end)
 
 -- ══════════════════════════════════════════════════════════════

@@ -1,5 +1,5 @@
 -- ══════════════════════════════════════════════════════════════
--- ZDX Core: Server Main (Connection, DB Load, Save Loop)
+-- ZDX Framework: Server Main (Connection, DB Load, Save Loop)
 -- ══════════════════════════════════════════════════════════════
 
 -- Ensure DB table on startup
@@ -8,7 +8,7 @@ AddEventHandler('onResourceStart', function(resource)
     ZDX_DB.EnsureTable()
     GlobalState.PlayerCount = 0
     GlobalState.MaxPlayers = GetConvarInt('sv_maxclients', 48)
-    print('^2[ZDX-CORE]^0 Core started. Universal bridge active (ESX/QB/QBox).')
+    print('^2[ZDX]^0 ZDX Framework started.')
 end)
 
 -- ══════════════════════════════════════════════════════════════
@@ -52,7 +52,7 @@ RegisterNetEvent('zdx_core:server:playerJoined', function()
     -- Load or create from database
     local dbData = ZDX_DB.LoadPlayer(identifier)
     if not dbData then
-        print(('^3[ZDX-CORE]^0 New player %s, creating database entry...'):format(playerName))
+        print(('^3[ZDX]^0 New player %s, creating database entry...'):format(playerName))
         dbData = ZDX_DB.CreatePlayer(identifier, playerName)
     end
 
@@ -65,7 +65,7 @@ RegisterNetEvent('zdx_core:server:playerJoined', function()
     local zdxPlayer = CreateZDXPlayer(src, identifier, dbData)
     GlobalState.PlayerCount = (GlobalState.PlayerCount or 0) + 1
 
-    print(('^2[ZDX-CORE]^0 Player %s loaded (ID: %s | CitizenID: %s)'):format(playerName, src, zdxPlayer.citizenid))
+    print(('^2[ZDX]^0 Player %s loaded (ID: %s | CitizenID: %s)'):format(playerName, src, zdxPlayer.citizenid))
 
     -- Determine spawn position
     local spawnPos = Config.DefaultSpawn
@@ -92,11 +92,8 @@ RegisterNetEvent('zdx_core:server:playerLoaded', function()
     -- Set state bag
     Player(src).state:set('isLoggedIn', true, true)
 
-    -- Fire ESX load event
-    TriggerEvent('esx:playerLoaded', src, zdxPlayer, false)
-
-    -- Fire QB load event
-    TriggerEvent('QBCore:Server:PlayerLoaded', zdxPlayer)
+    -- Fire ZDX native load event (bridges will pick this up)
+    TriggerEvent('zdx:playerLoaded', src, zdxPlayer)
 
     -- PVP
     if Config.PVP then
@@ -116,12 +113,10 @@ AddEventHandler('playerDropped', function(reason)
     -- Save to database
     zdxPlayer.Functions.Save()
 
-    -- Fire ESX drop event
-    TriggerEvent('esx:playerDropped', src, reason)
-    -- Fire QB drop event
-    TriggerEvent('QBCore:Server:OnPlayerUnload', src)
+    -- Fire ZDX native drop event (bridges will pick this up)
+    TriggerEvent('zdx:playerDropped', src, reason)
 
-    print(('^1[ZDX-CORE]^0 Player %s disconnected (ID: %s). Reason: %s'):format(zdxPlayer.name, src, reason))
+    print(('^1[ZDX]^0 Player %s disconnected (ID: %s). Reason: %s'):format(zdxPlayer.name, src, reason))
 
     ZDX.Players[src] = nil
     GlobalState.PlayerCount = math.max((GlobalState.PlayerCount or 1) - 1, 0)
@@ -140,7 +135,7 @@ CreateThread(function()
             count = count + 1
         end
         if count > 0 then
-            print(('^2[ZDX-CORE]^0 Auto-saved %d player(s).'):format(count))
+            print(('^2[ZDX]^0 Auto-saved %d player(s).'):format(count))
         end
     end
 end)
@@ -150,5 +145,5 @@ AddEventHandler('txAdmin:events:serverShuttingDown', function()
     for _, zdxPlayer in pairs(ZDX.Players) do
         zdxPlayer.Functions.Save()
     end
-    print('^2[ZDX-CORE]^0 All players saved on shutdown.')
+    print('^2[ZDX]^0 All players saved on shutdown.')
 end)

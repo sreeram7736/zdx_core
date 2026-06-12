@@ -2,7 +2,7 @@
 --  ZDX CINEMATIC FRAMEWORK — Database Schema
 --  Made by ZDX Scripts
 --  Stack: inventory · illenium-appearance · pma-voice
---         es_extended · vehicle spawn · gun spawn · dresspacks
+--         vehicle spawn · gun spawn · dresspacks
 -- ============================================================
 
 SET SQL_MODE = "NO_AUTO_VALUE_ON_ZERO";
