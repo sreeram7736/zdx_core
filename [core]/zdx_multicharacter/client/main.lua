@@ -1,310 +1,303 @@
-local currentRoom = nil
-local characterPeds = {}
-local activeCam = nil
-local inCharacterMenu = false
-local selectedCharacter = nil
-local playerPed = nil
-local originalCoords = nil
+_print = print
 
--- Prevent multiple instances
-CreateThread(function()
-    while true do
-        Wait(0)
-        if inCharacterMenu then
-            DisableAllControlActions(0)
-            EnableControlAction(0, 1, true) -- Mouse look
-            EnableControlAction(0, 2, true) -- Mouse look
-        end
-    end
-end)
+local jsLoaded = false
+local isOpen = false
+local multicharInitDone = false
+local previewPed = nil
+local characterList = {}
+local currentPreviewCharId = nil
 
-RegisterNetEvent('nexus-multicharacter:client:open', function()
-    if inCharacterMenu then return end
-    inCharacterMenu = true
-    
-    playerPed = PlayerPedId()
-    originalCoords = GetEntityCoords(playerPed)
-    
-    DoScreenFadeOut(500)
-    Wait(500)
-    
-    SetupCharacterRoom()
-    Wait(100)
-    
-    DoScreenFadeIn(1000)
-    OpenCharacterUI()
-end)
-
-function SetupCharacterRoom()
-    local room = Config.Rooms[Config.DefaultRoom]
-    currentRoom = room
-    
-    -- Set player invisible and freeze
-    SetEntityVisible(playerPed, false, false)
-    SetEntityCollision(playerPed, false, false)
-    FreezeEntityPosition(playerPed, true)
-    SetEntityInvincible(playerPed, true)
-    
-    -- Teleport to room
-    SetEntityCoords(playerPed, room.coords.x, room.coords.y, room.coords.z, false, false, false, false)
-    SetEntityHeading(playerPed, room.coords.w)
-    
-    -- Set time and weather
-    NetworkOverrideClockTime(room.lighting.time, 0, 0)
-    SetWeatherTypePersist(room.lighting.weather)
-    SetWeatherTypeNow(room.lighting.weather)
-    SetWeatherTypeNowPersist(room.lighting.weather)
-    
-    -- Disable HUD
-    DisplayRadar(false)
-    DisplayHud(false)
-    
-    -- Create main camera
-    CreateMainCamera()
-    
-    -- Request character data
-    TriggerServerCallback('nexus-multicharacter:server:getCharacters', function(data)
-        if data then
-            CreateCharacterPeds(data.characters)
-            SendNUIMessage({
-                action = 'openCharacterHub',
-                characters = data.characters,
-                maxSlots = data.maxSlots
-            })
-        end
-    end)
+function GetCurrentPreviewCharId()
+    return currentPreviewCharId
 end
 
-function CreateMainCamera()
-    local room = currentRoom
-    if not room then return end
-    
-    local camData = room.mainCamera
-    
-    if activeCam then
-        DestroyCam(activeCam, false)
+function ResolveModelHash(model, fallbackHash)
+    if model == nil or model == "" then return fallbackHash end
+    if type(model) == "string" then
+        local numeric = tonumber(model)
+        if numeric then model = numeric else model = GetHashKey(model) end
     end
-    
-    activeCam = CreateCamWithParams(
-        "DEFAULT_SCRIPTED_CAMERA",
-        camData.coords.x, camData.coords.y, camData.coords.z,
-        camData.rotation.x, camData.rotation.y, camData.rotation.z,
-        camData.fov,
-        false, 0
-    )
-    
-    SetCamActive(activeCam, true)
-    RenderScriptCams(true, false, 0, true, true)
-    
-    -- Smooth entrance animation
-    CreateThread(function()
-        local startFov = camData.fov + 20.0
-        local endFov = camData.fov
-        local duration = Config.Cameras.animations.entrance.duration
-        local startTime = GetGameTimer()
-        
-        while GetGameTimer() - startTime < duration do
-            local progress = (GetGameTimer() - startTime) / duration
-            local currentFov = startFov + (endFov - startFov) * EaseInOutCubic(progress)
-            SetCamFov(activeCam, currentFov)
-            Wait(0)
-        end
-    end)
+    return model
 end
 
-function CreateCharacterPeds(characters)
-    -- Clean up existing peds
-    for _, ped in pairs(characterPeds) do
-        if DoesEntityExist(ped) then
-            DeleteEntity(ped)
-        end
-    end
-    characterPeds = {}
-    
-    local room = currentRoom
-    if not room then return end
-    
-    for _, charData in ipairs(characters) do
-        local slot = charData.slot
-        if room.positions[slot] then
-            local pos = room.positions[slot]
-            local model = charData.gender == 'male' and `mp_m_freemode_01` or `mp_f_freemode_01`
-            
-            RequestModel(model)
-            while not HasModelLoaded(model) do
-                Wait(10)
-            end
-            
-            local ped = CreatePed(4, model, pos.ped.x, pos.ped.y, pos.ped.z, pos.ped.w, false, true)
-            
-            SetEntityInvincible(ped, true)
-            FreezeEntityPosition(ped, true)
-            SetBlockingOfNonTemporaryEvents(ped, true)
-            SetPedCanRagdoll(ped, false)
-            
-            -- Apply appearance
-            if charData.appearance then
-                local appearance = type(charData.appearance) == 'string' and json.decode(charData.appearance) or charData.appearance
-                
-                -- Wait for ped to be ready
-                while not DoesEntityExist(ped) do Wait(10) end
-                
-                local success, error = pcall(function()
-                    exports[Config.Appearance.resource]:setPedAppearance(ped, appearance)
-                end)
-                
-                if not success then
-                    print('^3[WARNING] Failed to set appearance for slot ' .. slot .. ': ' .. tostring(error) .. '^0')
-                end
-            end
-            
-            -- Apply scenario
-            if pos.scenario then
-                TaskStartScenarioInPlace(ped, pos.scenario, 0, true)
-            end
-            
-            characterPeds[slot] = ped
-            
-            SetModelAsNoLongerNeeded(model)
-        end
+function DeletePreviewPed()
+    if previewPed and DoesEntityExist(previewPed) then
+        DeleteEntity(previewPed)
+        previewPed = nil
     end
 end
 
-function OpenCharacterUI()
+function SpawnPreviewPed(modelHash)
+    DeletePreviewPed()
+
+    local cfg = Config.CinematicRoom
+    if not cfg then return nil end
+
+    modelHash = ResolveModelHash(modelHash, GetHashKey("mp_m_freemode_01"))
+
+    RequestModel(modelHash)
+    local waited = 0
+    while not HasModelLoaded(modelHash) and waited < 5000 do
+        Wait(10)
+        waited = waited + 10
+    end
+
+    if not HasModelLoaded(modelHash) then
+        return nil
+    end
+
+    previewPed = CreatePed(6, modelHash, cfg.pedCoords.x, cfg.pedCoords.y, cfg.pedCoords.z, cfg.pedCoords.w, false, false)
+    SetEntityInvincible(previewPed, true)
+    SetBlockingOfNonTemporaryEvents(previewPed, true)
+    SetEntityCollision(previewPed, true, true)
+    SetEntityAlpha(previewPed, 255, false)
+
+    -- Play simple idle anim
+    RequestAnimDict("anim@heists@heist_corona@single_team")
+    while not HasAnimDictLoaded("anim@heists@heist_corona@single_team") do Wait(10) end
+    TaskPlayAnim(previewPed, "anim@heists@heist_corona@single_team", "single_team_loop_boss", 8.0, -8.0, -1, 1, 0, false, false, false)
+
+    SetModelAsNoLongerNeeded(modelHash)
+    return previewPed
+end
+
+function OpenMulticharUI(characters, maxChars, canDelete)
     SetNuiFocus(true, true)
     SendNUIMessage({
-        action = 'setVisible',
-        visible = true
+        action = "open",
+        characters = characters or {},
+        maxCharacters = maxChars or 5,
+        canDelete = canDelete
     })
 end
 
-function CloseCharacterUI()
-    SetNuiFocus(false, false)
-    SendNUIMessage({
-        action = 'setVisible',
-        visible = false
-    })
-end
+function OpenMultichar()
+    if isOpen then return end
+    isOpen = true
 
-function CleanupCharacterSelection()
-    -- Clean up cameras
-    if activeCam then
-        DestroyCam(activeCam, false)
-        activeCam = nil
-    end
-    RenderScriptCams(false, false, 0, true, true)
-    
-    -- Clean up peds
-    for _, ped in pairs(characterPeds) do
-        if DoesEntityExist(ped) then
-            DeleteEntity(ped)
-        end
-    end
-    characterPeds = {}
-    
-    -- Restore player
-    if DoesEntityExist(playerPed) then
-        SetEntityVisible(playerPed, true, false)
-        SetEntityCollision(playerPed, true, true)
-        FreezeEntityPosition(playerPed, false)
-        SetEntityInvincible(playerPed, false)
-    end
-    
-    -- Restore HUD
-    DisplayRadar(true)
-    DisplayHud(true)
-    
-    -- Reset time/weather
-    NetworkOverrideClockTimeFreeze(false)
-    
-    inCharacterMenu = false
-    CloseCharacterUI()
-end
+    DisplayHud(false)
+    SetNuiFocus(true, true)
+    DoScreenFadeOut(500)
+    Wait(500)
 
--- NUI Callbacks
-RegisterNUICallback('close', function(data, cb)
-    CleanupCharacterSelection()
-    cb('ok')
-end)
+    CameraSystem.CreatePreviewCam()
+    CameraSystem.ApplyEnvironment()
 
-RegisterNUICallback('selectCharacter', function(data, cb)
-    selectedCharacter = data
-    
-    -- Open spawn selector
-    SendNUIMessage({
-        action = 'openSpawnSelector',
-        character = data.character,
-        spawns = Config.Spawns
-    })
-    
-    cb('ok')
-end)
+    TriggerServerEvent("zdx_multichar:playerEnteredMultichar")
 
-RegisterNUICallback('createCharacter', function(data, cb)
-    TriggerServerEvent('nexus-multicharacter:server:createCharacter', data)
-    cb('ok')
-end)
+    while not jsLoaded do Wait(500) end
 
-RegisterNUICallback('deleteCharacter', function(data, cb)
-    TriggerServerEvent('nexus-multicharacter:server:deleteCharacter', data.slot)
-    cb('ok')
-end)
+    Core.TriggerCallback("zdx_multichar:getCharacters", function(response)
+        local characters = response.characters or {}
+        local maxCharacters = response.maxCharacters or 5
+        local canDelete = response.canDelete
+        characterList = characters
 
-RegisterNUICallback('editCharacter', function(data, cb)
-    CloseCharacterUI()
-    OpenAppearanceCreator(data.character, false)
-    cb('ok')
-end)
-
-RegisterNUICallback('focusCharacter', function(data, cb)
-    FocusOnCharacter(data.slot)
-    cb('ok')
-end)
-
-RegisterNUICallback('disconnect', function(data, cb)
-    cb('ok')
-    Wait(100)
-    TriggerServerEvent('nexus-multicharacter:server:disconnect')
-end)
-
--- Server events
-RegisterNetEvent('nexus-multicharacter:client:characterCreated', function(slot)
-    -- Close UI and open appearance
-    CloseCharacterUI()
-    
-    TriggerServerCallback('nexus-multicharacter:server:getCharacter', function(character)
-        if character then
-            OpenAppearanceCreator(character, true)
-        end
-    end, slot)
-end)
-
-RegisterNetEvent('nexus-multicharacter:client:characterDeleted', function(slot)
-    -- Remove ped
-    if characterPeds[slot] and DoesEntityExist(characterPeds[slot]) then
-        DeleteEntity(characterPeds[slot])
-        characterPeds[slot] = nil
-    end
-    
-    -- Refresh character list
-    TriggerServerCallback('nexus-multicharacter:server:getCharacters', function(data)
-        if data then
-            CreateCharacterPeds(data.characters)
-            SendNUIMessage({
-                action = 'updateCharacters',
-                characters = data.characters,
-                maxSlots = data.maxSlots
-            })
+        OpenMulticharUI(characters, maxCharacters, canDelete)
+        
+        if #characters > 0 then
+            currentPreviewCharId = characters[1].id
+            TriggerServerEvent("zdx_multichar:previewCharacter", currentPreviewCharId)
+        else
+            SpawnPreviewPed()
+            Wait(1000)
+            DoScreenFadeIn(400)
+            SendNUIMessage({ action = "setReady", ready = true })
         end
     end)
+end
+
+function CloseMultichar(skipServerLeaveEvent)
+    if not isOpen then return end
+    isOpen = false
+
+    SetNuiFocus(false, false)
+    SendNUIMessage({ action = "close" })
+    
+    DeletePreviewPed()
+    CameraSystem.DestroyAllCams()
+
+    DisplayHud(true)
+
+    if not skipServerLeaveEvent then
+        TriggerServerEvent("zdx_multichar:playerLeftMultichar")
+    end
+end
+
+function FinishSpawn(spawnCoords, heading, isNew, charData)
+    if isNew and Config.SpawnWithApartment and Config.SpawnWithApartment ~= "Disabled" then
+        if SpawnBridge and SpawnBridge.TriggerExternalSpawn then
+            CloseMultichar(true)
+            SpawnBridge.TriggerExternalSpawn(charData, true)
+            return
+        end
+    end
+
+    if Config.SpawnSelector and not isNew then
+        if SpawnBridge and SpawnBridge.TriggerExternalSpawn then
+            CloseMultichar(true)
+            SpawnBridge.TriggerExternalSpawn(charData, false)
+            return
+        end
+    end
+
+    CloseMultichar(true)
+    DoScreenFadeOut(500)
+    Wait(500)
+
+    local ped = PlayerPedId()
+    SetEntityCoords(ped, spawnCoords.x, spawnCoords.y, spawnCoords.z, false, false, false, false)
+    SetEntityHeading(ped, heading or 0.0)
+    FreezeEntityPosition(ped, false)
+    SetEntityVisible(ped, true, false)
+
+    Wait(1000)
+    DoScreenFadeIn(1000)
+    TriggerServerEvent("zdx_multichar:playerLeftMultichar")
+end
+
+function BeginCharacterSpawn(characterData, isNewCharacter)
+    if not characterData or not characterData.id then return end
+
+    SetNuiFocus(false, false)
+    TriggerServerEvent("zdx_multichar:selectCharacter", characterData.id)
+
+    CreateThread(function()
+        Wait(isNewCharacter and 750 or 1500)
+        local spawnSelection = nil
+
+        if isNewCharacter then
+            spawnSelection = { coords = Config.FirstSpawnLocation or vector3(0,0,0), heading = 0.0 }
+        else
+            spawnSelection = { coords = characterData.coords or Config.EmergencySpawnLocation, heading = characterData.heading or 0.0 }
+        end
+
+        FinishSpawn(spawnSelection.coords, spawnSelection.heading, isNewCharacter, characterData)
+    end)
+end
+
+RegisterNUICallback("jsLoaded", function(data, cb)
+    cb("ok")
+    jsLoaded = true
 end)
 
-RegisterNetEvent('nexus-multicharacter:client:notify', function(type, message)
-    -- Add your notification system here
-    print('[Notification] ' .. type .. ': ' .. message)
+RegisterNUICallback("previewCharacter", function(data, cb)
+    cb("ok")
+    if data.id then
+        currentPreviewCharId = data.id
+        TriggerServerEvent("zdx_multichar:previewCharacter", data.id)
+    end
 end)
 
--- Command for testing
-RegisterCommand('charmenu', function()
-    TriggerEvent('nexus-multicharacter:client:open')
-end, false)
+RegisterNUICallback("selectCharacter", function(data, cb)
+    cb("ok")
+    if data.id then
+        currentPreviewCharId = data.id
+        TriggerServerEvent("zdx_multichar:previewCharacter", data.id)
+    end
+end)
+
+RegisterNUICallback("playCharacter", function(data, cb)
+    cb("ok")
+    if data.data then
+        BeginCharacterSpawn(data.data, data.isNew == true)
+    end
+end)
+
+RegisterNUICallback("createCharacter", function(data, cb)
+    cb("ok")
+    TriggerServerEvent("zdx_multichar:createCharacter", data)
+end)
+
+RegisterNUICallback("deleteCharacter", function(data, cb)
+    cb("ok")
+    if data.id then
+        TriggerServerEvent("zdx_multichar:deleteCharacter", data.id)
+    end
+end)
+
+RegisterNUICallback("quitGame", function(data, cb)
+    cb("ok")
+    TriggerServerEvent("zdx_multichar:server:quitGame")
+end)
+
+RegisterNetEvent("zdx_multichar:client:open", function()
+    if not multicharInitDone then
+        multicharInitDone = true
+        OpenMultichar()
+    end
+end)
+
+RegisterNetEvent("zdx_multichar:client:logout", function()
+    if isOpen then return end
+    multicharInitDone = false
+    TriggerServerEvent("zdx_multichar:playerEnteredMultichar")
+    Wait(500)
+    OpenMultichar()
+end)
+
+RegisterNetEvent("zdx_multichar:client:updateCharacters", function(characters)
+    characterList = characters or {}
+    SendNUIMessage({ action = "setCharacters", characters = characters })
+end)
+
+RegisterNetEvent("zdx_multichar:client:characterCreated", function(characters, newCharId)
+    characterList = characters or {}
+    local newChar = nil
+    for _, c in ipairs(characterList) do
+        if tostring(c.id) == tostring(newCharId) then newChar = c break end
+    end
+    SendNUIMessage({ action = "characterCreated" })
+    if newChar then BeginCharacterSpawn(newChar, true) end
+end)
+
+RegisterNetEvent("zdx_multichar:client:characterCreateFailed", function(reason)
+    SendNUIMessage({ action = "setReady", ready = true })
+    SendNUIMessage({ action = "characterCreated" })
+    print("[zdx Multichar] Character creation failed:", reason)
+end)
+
+RegisterNetEvent("zdx_multichar:client:characterDeleted", function(characters)
+    characterList = characters or {}
+    SendNUIMessage({ action = "characterDeleted", characters = characters })
+end)
+
+RegisterNetEvent("zdx_multichar:client:previewPed", function(modelHash, appearance)
+    local ped = SpawnPreviewPed(modelHash)
+    if ped then
+        pcall(function()
+            ClothingBridge.ApplyAppearance(ped, appearance)
+        end)
+    end
+    Wait(1000)
+    DoScreenFadeIn(400)
+    SendNUIMessage({ action = "setReady", ready = true })
+end)
+
+RegisterNetEvent("zdx_multichar:client:previewFailed", function()
+    print("[zdx Multichar] Character preview failed on server")
+    Wait(1000)
+    DoScreenFadeIn(400)
+    SendNUIMessage({ action = "setReady", ready = true })
+end)
+
+RegisterNetEvent("zdx_multichar:client:onPlayerLoaded", function()
+    if Core.Framework == "qb" then
+        TriggerServerEvent("QBCore:Server:OnPlayerLoaded")
+        TriggerEvent("QBCore:Client:OnPlayerLoaded")
+        TriggerServerEvent("qb-houses:server:sethouses")
+    end
+end)
+
+RegisterNetEvent("zdx_multichar:client:cleanup", function()
+    DeletePreviewPed()
+end)
+
+CreateThread(function()
+    while true do
+        if isOpen then
+            DisableIdleCamera(true)
+        end
+        Wait(1000)
+    end
+end)

@@ -1,52 +1,61 @@
+
 fx_version 'cerulean'
 game 'gta5'
 lua54 'yes'
-
-name 'zdx-multicharacter'
+description 'Custom Multicharacter for ZDX'
 author 'ZiDFPS'
-version '1.0.0'
-description 'Premium Cinematic Multicharacter & Spawn Selector'
+version '1.1'
 
 shared_scripts {
-    'config/config.lua',
-    'config/rooms.lua',
-    'config/spawns.lua',
-    'config/cameras.lua'
+    "config.lua",
+    "shared/creation.lua",
+    "shared/delete_tables.lua",
+    "shared/bridge/spawn_selector.lua",
 }
 
 client_scripts {
-    'client/utils.lua',
-    'client/camera.lua',
-    'client/appearance.lua',
-    'client/spawns.lua',
-    'client/main.lua'
+    "locales/*.lua",
+    "shared/bridge/cl_clothing.lua",
+    "client/core.lua",
+    "client/camera.lua",
+    "client/settings.lua",
+    "client/main.lua",
 }
 
 server_scripts {
-    '@oxmysql/lib/MySQL.lua',
-    'server/callbacks.lua',
-    'server/database.lua',
-    'server/slots.lua',
-    'server/screenshots.lua',
-    'server/characters.lua'
+    "@oxmysql/lib/MySQL.lua",
+    "locales/*.lua",
+    "shared/bridge/sv_clothing.lua",
+    "shared/slot.lua",
+    "shared/webhooks.lua",
+    "server/core.lua",
+    "server/frameworks/*.lua",
+    "server/main.lua",
+    "server/update.lua",
 }
 
-ui_page 'ui/dist/index.html'
+ui_page "html/index.html"
 
 files {
-    'ui/dist/**/*'
-}
-
-dependencies {
-    'oxmysql',
-    'illenium-appearance'
-}
-
-optional_dependencies {
-    'screenshot-basic'
+    "html/index.html",
+    "html/assets/*.css",
+    
+    "html/assets/*.png",
+    "html/js/*.js",
+    "html/fonts/*.otf",
+    "html/fonts/*.ttf",
+    "html/fonts/*.TTF",
 }
 
 escrow_ignore {
-    'config/*.lua',
-    'bridge/*.lua'
+    "config.lua",
+    "locales/*.lua",
+    "shared/creation.lua",
+    "shared/animations.lua",
+    "shared/delete_tables.lua",
+    "shared/locations.lua",
+    "shared/slot.lua",
+    "shared/webhooks.lua",
+    "shared/bridge/*.lua",
 }
+dependency 'oxmysql'

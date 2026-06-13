@@ -1,0 +1,1585 @@
+
+_print = print
+
+jsLoaded = false
+isOpen = false
+multicharInitDone = false
+previewPed = nil
+orderedLocationIndex = 1
+currentPreviewCharId = nil
+currentPreviewJob = nil
+characterList = {}
+savedPartnersByChar = nil
+weather_stopped = false
+ActiveLocation = nil
+
+soloSceneActive = false
+soloSceneExtraPeds = {}
+soloSceneActiveScene = nil
+
+loadedAnimDicts = {}
+loadedModels = {}
+animLoopToken = 0
+environmentCleanRunning = false
+previewPedSpawnToken = 0
+bucketReady = false
+previewCharacterToken = 0
+lastLocationChangeTime = 0
+lastPoseChangeTime = 0
+
+function EnableThirdPartyWeatherSync()
+    if not weather_stopped then
+        return
+    end
+    if Config.Environment and type(Config.Environment.EnableThirdPartySync) == "function" then
+        pcall(Config.Environment.EnableThirdPartySync)
+        weather_stopped = false
+    end
+end
+
+function DisableThirdPartyWeatherSync()
+    if weather_stopped then
+        return
+    end
+    if Config.Environment and type(Config.Environment.DisableThirdPartySync) == "function" then
+        pcall(Config.Environment.DisableThirdPartySync)
+        weather_stopped = true
+    end
+end
+
+function GetCurrentPreviewCharId()
+    return currentPreviewCharId
+end
+
+function SetCurrentPreviewCharId(charId)
+    currentPreviewCharId = charId
+end
+
+function GetSavedPartnerForChar(charId)
+    if not savedPartnersByChar then
+        return nil
+    end
+    return savedPartnersByChar[tostring(charId)]
+end
+
+function SetSavedPartnerForChar(charId, partnerData)
+    if not savedPartnersByChar then
+        savedPartnersByChar = {}
+    end
+    local key = tostring(charId)
+    if partnerData then
+        savedPartnersByChar[key] = partnerData
+    else
+        savedPartnersByChar[key] = nil
+    end
+end
+
+function FindCharIdByPartnerIdentifier(partnerIdentifier)
+    if not savedPartnersByChar then
+        return nil
+    end
+    for charKey, partnerData in pairs(savedPartnersByChar) do
+        if partnerData and partnerData.partnerIdentifier == partnerIdentifier then
+            return charKey
+        end
+    end
+    return nil
+end
+
+function ResolveModelHash(model, fallbackHash)
+    if model == nil or model == "" then
+        return fallbackHash
+    end
+    if type(model) == "string" then
+        local numeric = tonumber(model)
+        if numeric then
+            model = numeric
+        else
+            model = GetHashKey(model)
+        end
+    end
+    return model
+end
+
+function RequestAnimDictLoaded(dictName)
+    if HasAnimDictLoaded(dictName) then
+        return true
+    end
+    RequestAnimDict(dictName)
+    local waited = 0
+    while not HasAnimDictLoaded(dictName) and waited < 5000 do
+        Wait(10)
+        waited = waited + 10
+    end
+    if HasAnimDictLoaded(dictName) then
+        loadedAnimDicts[dictName] = true
+    end
+    return HasAnimDictLoaded(dictName)
+end
+
+function RequestModelLoaded(model)
+    model = ResolveModelHash(model)
+    if not model then
+        return nil
+    end
+    if not IsModelInCdimage(model) or not IsModelValid(model) then
+        return nil
+    end
+    RequestModel(model)
+    local waited = 0
+    while not HasModelLoaded(model) and waited < 5000 do
+        Wait(10)
+        waited = waited + 10
+    end
+    if not HasModelLoaded(model) then
+        return nil
+    end
+    local freemodeMale = GetHashKey("mp_m_freemode_01")
+    local freemodeFemale = GetHashKey("mp_f_freemode_01")
+    if model ~= freemodeMale and model ~= freemodeFemale then
+        loadedModels[model] = true
+    end
+    return model
+end
+
+function UnloadPreviewAssets()
+    for dictName in pairs(loadedAnimDicts) do
+        RemoveAnimDict(dictName)
+    end
+    loadedAnimDicts = {}
+    local freemodeMale = GetHashKey("mp_m_freemode_01")
+    local freemodeFemale = GetHashKey("mp_f_freemode_01")
+    for modelHash in pairs(loadedModels) do
+        if modelHash ~= freemodeMale and modelHash ~= freemodeFemale then
+            SetModelAsNoLongerNeeded(modelHash)
+        end
+    end
+    loadedModels = {}
+end
+
+function StopSoloScene()
+    if soloSceneActiveScene then
+        DetachSynchronizedScene(soloSceneActiveScene)
+        DisposeSynchronizedScene(soloSceneActiveScene)
+        soloSceneActiveScene = nil
+    end
+    for _, entity in ipairs(soloSceneExtraPeds) do
+        if DoesEntityExist(entity) then
+            DeleteEntity(entity)
+        end
+    end
+    soloSceneExtraPeds = {}
+end
+
+function StopAnimLoop(ped)
+    animLoopToken = animLoopToken + 1
+    StopSoloScene()
+end
+
+function PlaySoloSyncedScene(previewEntity, sceneDef, baseCoords, baseRotation, loopToken)
+    if sceneDef.actors then
+        for _, actor in ipairs(sceneDef.actors) do
+            RequestAnimDictLoaded(actor.dict)
+            if actor.model then
+                RequestModelLoaded(actor.model)
+            end
+        end
+    end
+    if animLoopToken ~= loopToken then
+        return 0
+    end
+    StopSoloScene()
+    local sceneX, sceneY, sceneZ = table.unpack(baseCoords)
+    local rotX, rotY, rotZ = table.unpack(baseRotation)
+    local deltaZ = sceneDef.deltaZ or 0.0
+    sceneZ = sceneZ + deltaZ
+    local headingOffset = sceneDef.headingOffset or 0.0
+    rotZ = rotZ + headingOffset
+    local syncScene = CreateSynchronizedScene(sceneX, sceneY, sceneZ, rotX, rotY, rotZ, 2)
+    soloSceneActiveScene = syncScene
+    local holdFlag = sceneDef.holdLastFrame and 2 or 0
+    if sceneDef.actors and #sceneDef.actors > 0 then
+        local primaryActor = sceneDef.actors[1]
+        RequestAnimDictLoaded(primaryActor.dict)
+        TaskSynchronizedScene(previewEntity, syncScene, primaryActor.dict, primaryActor.anim, 8.0, -8.0, 0, holdFlag, 1000.0, 0)
+        for actorIndex = 2, #sceneDef.actors do
+            local actor = sceneDef.actors[actorIndex]
+            if actor.model then
+                local modelHash = RequestModelLoaded(actor.model)
+                if modelHash then
+                    local entity = nil
+                    if actor.type == "object" then
+                        entity = CreateObject(modelHash, sceneX, sceneY, sceneZ, false, false, false)
+                    elseif actor.type == "vehicle" then
+                        entity = CreateVehicle(modelHash, sceneX, sceneY, sceneZ, 0.0, false, false)
+                    else
+                        entity = CreatePed(6, modelHash, sceneX, sceneY, sceneZ, 0, false, false)
+                        SetEntityCollision(entity, true, true)
+                        SetEntityInvincible(entity, true)
+                        SetBlockingOfNonTemporaryEvents(entity, true)
+                    end
+                    SetEntityAsMissionEntity(entity, true, true)
+                    SetEntityAlpha(entity, 255, false)
+                    SetModelAsNoLongerNeeded(modelHash)
+                    soloSceneExtraPeds[#soloSceneExtraPeds + 1] = entity
+                    RequestAnimDictLoaded(actor.dict)
+                    if actor.type == "object" or actor.type == "vehicle" then
+                        PlaySynchronizedEntityAnim(entity, syncScene, actor.anim, actor.dict, 1000.0, -1000.0, 0, 1000.0)
+                    else
+                        TaskSynchronizedScene(entity, syncScene, actor.dict, actor.anim, 8.0, -8.0, 0, holdFlag, 1000.0, 0)
+                    end
+                end
+            end
+        end
+    end
+    SetSynchronizedSceneRate(syncScene, 1.0)
+    if sceneDef.holdLastFrame then
+        SetSynchronizedSceneLooped(syncScene, false)
+    end
+    soloSceneActiveScene = syncScene
+    if sceneDef.actors and sceneDef.actors[1] then
+        local primaryActor = sceneDef.actors[1]
+        return GetAnimDuration(primaryActor.dict, primaryActor.anim) * 1000
+    end
+    return 5000
+end
+
+function IsValidSpawnCoord(x, y, z)
+    if type(x) ~= "number" or type(y) ~= "number" or type(z) ~= "number" then
+        return false
+    end
+    if x ~= x or y ~= y or z ~= z then
+        return false
+    end
+    if x == math.huge or x == -math.huge then
+        return false
+    end
+    if y == math.huge or y == -math.huge then
+        return false
+    end
+    if z == math.huge or z == -math.huge then
+        return false
+    end
+    if math.abs(x) > 10000 or math.abs(y) > 10000 then
+        return false
+    end
+    if z < -500 or z > 2500 then
+        return false
+    end
+    return true
+end
+
+function PickRandomFromList(items, predicate, maxAttempts)
+    if not maxAttempts then
+        maxAttempts = #items * 4
+    end
+    local fallback = items[math.random(1, #items)]
+    for _ = 1, maxAttempts do
+        local candidate = items[math.random(1, #items)]
+        if predicate(candidate) then
+            return candidate
+        end
+        fallback = candidate
+    end
+    return fallback
+end
+
+function ResolveLocationForChar(hasPartner)
+    local jobLockedAnimIds = {}
+    if not hasPartner then
+        for _, anim in ipairs(zdx.GetAllAnimations()) do
+            if anim.id and anim.onlyJobs then
+                local jobMatches = false
+                if currentPreviewJob then
+                    for _, jobName in ipairs(anim.onlyJobs) do
+                        if jobName == currentPreviewJob then
+                            jobMatches = true
+                            break
+                        end
+                    end
+                end
+                if jobMatches then
+                    jobLockedAnimIds[anim.id] = true
+                end
+            end
+        end
+    end
+    local allAnims = zdx.GetAllAnimations()
+    local eligibleLocations = {}
+    for _, location in ipairs(Config.Locations) do
+        local includeLocation = true
+        if hasPartner and location.partnerDisabled then
+            includeLocation = false
+        end
+        if includeLocation and not hasPartner and location.animations then
+            local hasJobAnim = false
+            for _, animId in ipairs(location.animations) do
+                if jobLockedAnimIds[animId] then
+                    hasJobAnim = true
+                    break
+                end
+            end
+            if not hasJobAnim then
+                local allJobLocked = true
+                for _, animId in ipairs(location.animations) do
+                    local animIsJobLocked = false
+                    for _, anim in ipairs(allAnims) do
+                        if anim.id == animId and anim.onlyJobs then
+                            animIsJobLocked = true
+                            break
+                        end
+                    end
+                    if not animIsJobLocked then
+                        allJobLocked = false
+                        break
+                    end
+                end
+                if allJobLocked then
+                    includeLocation = false
+                end
+            end
+        end
+        if includeLocation then
+            eligibleLocations[#eligibleLocations + 1] = location
+        end
+    end
+    if #eligibleLocations == 0 then
+        return false
+    end
+    local pickedLocation = PickRandomFromList(eligibleLocations, function(loc)
+        local currentId = ActiveLocation and ActiveLocation.id
+        return loc.id ~= currentId
+    end)
+    if pickedLocation.id ~= (ActiveLocation and ActiveLocation.id) then
+        ActiveLocation = pickedLocation
+        return true
+    end
+    return false
+end
+
+function GetLocationFilteredAnims(allAnims)
+    local allowedList = ActiveLocation and ActiveLocation.animations
+    local excludedList = ActiveLocation and ActiveLocation.excludeAnimations
+    local allowedMap = nil
+    if allowedList then
+        allowedMap = {}
+        for _, animId in ipairs(allowedList) do
+            allowedMap[animId] = true
+        end
+    end
+    local excludedMap = nil
+    if excludedList then
+        excludedMap = {}
+        for _, animId in ipairs(excludedList) do
+            excludedMap[animId] = true
+        end
+    end
+    local filtered = {}
+    for _, anim in ipairs(allAnims) do
+        local passesLocation = nil
+        if allowedMap then
+            if not anim.id then
+                passesLocation = nil
+            else
+                passesLocation = allowedMap[anim.id]
+            end
+        elseif not excludedMap then
+            passesLocation = true
+        end
+        if excludedMap and not (allowedMap and not anim.id) then
+            local animId = anim.id
+            local excludedHit = animId and excludedMap[animId]
+            passesLocation = excludedHit and (not excludedMap or excludedHit)
+        end
+        local passesJob = true
+        if anim.onlyJobs then
+            passesJob = false
+            if currentPreviewJob then
+                for _, jobName in ipairs(anim.onlyJobs) do
+                    if jobName == currentPreviewJob then
+                        passesJob = true
+                        break
+                    end
+                end
+            end
+        end
+        if passesLocation and passesJob then
+            filtered[#filtered + 1] = anim
+        end
+    end
+    if #filtered > 0 then
+        return filtered
+    end
+    return nil
+end
+
+function StartSoloAnimLoop(previewEntity, allAnims)
+    animLoopToken = animLoopToken + 1
+    local loopToken = animLoopToken
+    StopSoloScene()
+    local baseCoords = _G.previewPedBaseCoords
+    if not baseCoords then
+        baseCoords = GetEntityCoords(previewEntity)
+    end
+    local baseRotation = _G.previewPedBaseRot
+    if not baseRotation then
+        baseRotation = GetEntityRotation(previewEntity)
+    end
+    CreateThread(function()
+        local filteredAnims = GetLocationFilteredAnims(allAnims)
+        if not filteredAnims then
+            TaskStandStill(previewEntity, -1)
+            while animLoopToken == loopToken and DoesEntityExist(previewEntity) do
+                Wait(500)
+            end
+            if animLoopToken == loopToken then
+                StopSoloScene()
+            end
+            return
+        end
+        local selectableAnims = {}
+        for _, anim in ipairs(filteredAnims) do
+            if #filteredAnims <= 1 or anim.id ~= _G.lastSoloAnimId then
+                selectableAnims[#selectableAnims + 1] = anim
+            end
+        end
+        local selectedAnim = selectableAnims[math.random(#selectableAnims)]
+        _G.lastSoloAnimId = selectedAnim.id
+        while animLoopToken == loopToken and DoesEntityExist(previewEntity) do
+            ClearPedTasksImmediately(previewEntity)
+            local pedCoords = _G.previewPedBaseCoords
+            local pedRotation = _G.previewPedBaseRot
+            if pedCoords then
+                SetEntityCoordsNoOffset(previewEntity, pedCoords.x, pedCoords.y, pedCoords.z, false, false, false)
+                SetEntityRotation(previewEntity, pedRotation.x, pedRotation.y, pedRotation.z, 2, false)
+            end
+            CameraSystem.InterpToPreviewPed(previewEntity, selectedAnim)
+            local camCoord = GetFinalRenderedCamCoord()
+            TaskLookAtCoord(previewEntity, camCoord.x, camCoord.y, camCoord.z, -1, 2048, 3)
+            local animDurationMs = nil
+            if selectedAnim.type == "emote" then
+                RequestAnimDictLoaded(selectedAnim.animDict)
+                TaskPlayAnim(previewEntity, selectedAnim.animDict, selectedAnim.animName, 8.0, -8.0, -1, 1, 0, false, false, false)
+                animDurationMs = GetAnimDuration(selectedAnim.animDict, selectedAnim.animName) * 1000
+                if animDurationMs == 0 then
+                    animDurationMs = 5000
+                end
+            elseif selectedAnim.type == "scenario" then
+                TaskStartScenarioInPlace(previewEntity, selectedAnim.scenario, 0, true)
+                animDurationMs = selectedAnim.duration or 8000
+            else
+                animDurationMs = PlaySoloSyncedScene(previewEntity, selectedAnim, baseCoords, baseRotation, loopToken)
+            end
+            local waitDuration = selectedAnim.duration or animDurationMs or 5000
+            local elapsedMs = 0
+            local cameraReturnTime = selectedAnim.cameraReturnTime or waitDuration
+            local cameraReturned = false
+            while waitDuration > elapsedMs do
+                if animLoopToken ~= loopToken then
+                    break
+                end
+                Wait(200)
+                elapsedMs = elapsedMs + 200
+                if selectedAnim.returnCameraOnEnd and not cameraReturned and cameraReturnTime <= elapsedMs then
+                    CameraSystem.InterpToPreviewPed(previewEntity)
+                    cameraReturned = true
+                end
+            end
+            if selectedAnim.returnCameraOnEnd and not cameraReturned and animLoopToken == loopToken then
+                CameraSystem.InterpToPreviewPed(previewEntity)
+                cameraReturned = true
+            end
+            if selectedAnim.holdLastFrame then
+                while animLoopToken == loopToken do
+                    Wait(500)
+                    elapsedMs = elapsedMs + 500
+                    if selectedAnim.returnCameraOnEnd and not cameraReturned and cameraReturnTime <= elapsedMs then
+                        CameraSystem.InterpToPreviewPed(previewEntity)
+                        cameraReturned = true
+                    end
+                end
+            end
+        end
+        if animLoopToken == loopToken then
+            StopSoloScene()
+        end
+    end)
+end
+
+_G.StartSoloAnimLoop = StartSoloAnimLoop
+
+function GetDefaultLocales()
+    local locales = {}
+    if Locales and Locales[Config.DefaultLang] then
+        locales = Locales[Config.DefaultLang]
+    end
+    if not locales then
+        locales = Locales and Locales.en or {}
+    end
+    return locales
+end
+
+function CleanupNearbyVehicles(originCoords, radius)
+    if Config.DisableEnvironmentClean then
+        return
+    end
+    if not radius then
+        radius = 50.0
+    end
+    local protectedEntities = {}
+    for _, entity in ipairs(soloSceneExtraPeds) do
+        protectedEntities[entity] = true
+    end
+    for _, vehicle in ipairs(GetGamePool("CVehicle")) do
+        if DoesEntityExist(vehicle) and not protectedEntities[vehicle] then
+            if #(GetEntityCoords(vehicle) - originCoords) <= radius then
+                DeleteEntity(vehicle)
+            end
+        end
+    end
+end
+
+function StartEnvironmentCleanupLoop()
+    if Config.DisableEnvironmentClean then
+        return
+    end
+    if environmentCleanRunning then
+        return
+    end
+    environmentCleanRunning = true
+    
+    -- Thread for density multipliers which MUST run every frame
+    CreateThread(function()
+        while isOpen do
+            SetParkedVehicleDensityMultiplierThisFrame(0.0)
+            SetVehicleDensityMultiplierThisFrame(0.0)
+            SetRandomVehicleDensityMultiplierThisFrame(0.0)
+            Wait(0)
+        end
+    end)
+
+    -- Thread for active entity deletion
+    CreateThread(function()
+        while isOpen do
+            if ActiveLocation then
+                CleanupNearbyVehicles(ActiveLocation.coords)
+            end
+            Wait(2000)
+        end
+        environmentCleanRunning = false
+    end)
+end
+
+function LoadPreviewArea()
+    local locationCoords = ActiveLocation.coords
+    local waited = 0
+    RequestCollisionAtCoord(locationCoords.x, locationCoords.y, locationCoords.z)
+    while not HasCollisionLoadedAroundEntity(PlayerPedId()) and waited < 3000 do
+        Wait(50)
+        waited = waited + 50
+    end
+    Wait(200)
+    ClearAreaOfPeds(locationCoords.x, locationCoords.y, locationCoords.z, 100.0, 1)
+    ClearAreaOfVehicles(locationCoords.x, locationCoords.y, locationCoords.z, 100.0, false, false, false, false, false)
+    CleanupNearbyVehicles(locationCoords)
+    StartEnvironmentCleanupLoop()
+end
+
+function DeletePreviewPed()
+    if previewPed then
+        StopAnimLoop(previewPed)
+        DeleteEntity(previewPed)
+    end
+    previewPed = nil
+end
+
+function ResolvePreviewPedZ(spawnCoords)
+    local configZ = spawnCoords.z - 0.98
+    RequestCollisionAtCoord(spawnCoords.x, spawnCoords.y, spawnCoords.z)
+
+    local waited = 0
+    while waited < 2500 do
+        if HasCollisionLoadedAroundEntity(PlayerPedId()) then
+            break
+        end
+        Wait(50)
+        waited = waited + 50
+    end
+
+    local foundGround, groundHeight = GetGroundZFor_3dCoord(
+        spawnCoords.x, spawnCoords.y, spawnCoords.z + 2.0, false
+    )
+    if foundGround and groundHeight ~= 0.0 and math.abs(groundHeight - spawnCoords.z) <= 3.0 then
+        return groundHeight
+    end
+
+    return configZ
+end
+
+function SpawnPreviewPed(modelHash)
+    previewPedSpawnToken = previewPedSpawnToken + 1
+    local spawnToken = previewPedSpawnToken
+    DeletePreviewPed()
+    modelHash = ResolveModelHash(modelHash, GetHashKey("mp_m_freemode_01"))
+    if not IsModelInCdimage(modelHash) or not IsModelValid(modelHash) then
+        modelHash = GetHashKey("mp_m_freemode_01")
+    end
+    RequestModel(modelHash)
+    local waited = 0
+    while not HasModelLoaded(modelHash) and waited < 5000 do
+        Wait(10)
+        waited = waited + 10
+    end
+    if previewPedSpawnToken ~= spawnToken then
+        return nil
+    end
+    local camOffset = ActiveLocation.camOffset or Config.Preview.camOffset
+    local pedHeading = GetHeadingFromVector_2d(camOffset.x, camOffset.y) + (ActiveLocation.pedHeadingOffset or 0.0)
+    local spawnCoords = ActiveLocation.coords
+    local groundZ = ResolvePreviewPedZ(spawnCoords)
+    local ped = CreatePed(26, modelHash, spawnCoords.x, spawnCoords.y, groundZ, pedHeading, false, false)
+    previewPed = ped
+    SetEntityCollision(previewPed, true, true)
+    FreezeEntityPosition(previewPed, true)
+    SetEntityInvincible(previewPed, true)
+    SetBlockingOfNonTemporaryEvents(previewPed, true)
+    SetEntityAlpha(previewPed, 255, false)
+    _G.previewPedBaseCoords = GetEntityCoords(previewPed)
+    _G.previewPedBaseRot = GetEntityRotation(previewPed)
+    SetModelAsNoLongerNeeded(modelHash)
+    return previewPed
+end
+
+function ExtractJobName(jobField)
+    if type(jobField) == "table" and jobField.name then
+        return jobField.name
+    end
+    return jobField
+end
+
+function SetPreviewJobFromCharacter(charId)
+    currentPreviewJob = nil
+    for _, character in ipairs(characterList) do
+        if tostring(character.id) == tostring(charId) then
+            currentPreviewJob = ExtractJobName(character.job)
+            break
+        end
+    end
+end
+
+function BuildSpawnLocationList()
+    local spawnList = {}
+    for _, spawnLoc in ipairs(Config.SpawnLocations) do
+        spawnList[#spawnList + 1] = {
+            id = spawnLoc.id,
+            label = spawnLoc.label,
+            description = spawnLoc.description
+        }
+    end
+    return spawnList
+end
+
+function ResolveDefaultWeather()
+    local weather = SettingsHandler.GetLocWeather(ActiveLocation)
+    if not weather then
+        if Config.Environment and Config.Environment.DefaultWeather then
+            weather = Config.Environment.DefaultWeather
+        else
+            weather = "CLEAR"
+        end
+    end
+    return weather
+end
+
+function ResolveDefaultTime()
+    local time = SettingsHandler.GetLocTime(ActiveLocation)
+    if not time then
+        if Config.Environment and Config.Environment.DefaultTime then
+            time = Config.Environment.DefaultTime
+        else
+            time = { hour = 12, minute = 0 }
+        end
+    end
+    return time
+end
+
+function ResolveSpawnMode()
+    if IsDirectSpawnMode() then
+        return "external"
+    end
+    if IsBuiltinSpawnMode() then
+        return "builtin"
+    end
+    return Config.SpawnSelector or "builtin"
+end
+
+function ResolveDirectSpawnCoords(characterData, isNewCharacter)
+    if not isNewCharacter and characterData.position then
+        local pos = characterData.position
+        if type(pos) == "string" then
+            pos = json.decode(pos)
+        end
+        if type(pos) == "table" and pos.x and pos.y and pos.z then
+            return vector3(pos.x, pos.y, pos.z)
+        end
+    end
+    if Config.FirstSpawnLocation then
+        return Config.FirstSpawnLocation
+    end
+    if Config.SpawnLocations and Config.SpawnLocations[1] and Config.SpawnLocations[1].coords then
+        return Config.SpawnLocations[1].coords
+    end
+    return nil
+end
+
+function FindCharacterInList(characters, charId)
+    if not characters or not charId then
+        return nil
+    end
+    for _, char in ipairs(characters) do
+        if char.id and tostring(char.id) == tostring(charId) then
+            return char
+        end
+    end
+    return nil
+end
+
+function BeginCharacterSpawn(characterData, isNewCharacter)
+    if not characterData or not characterData.id then
+        if Config.Debug then
+            _print("[zdx Multichar] BeginCharacterSpawn aborted: missing character id")
+        end
+        return
+    end
+
+    SetNuiFocus(false, false)
+    TriggerServerEvent("zdx_multichar:selectCharacter", characterData.id)
+
+    CreateThread(function()
+        Wait(isNewCharacter and 750 or 1500)
+
+        if IsDirectSpawnMode() then
+            local spawnCoords = ResolveDirectSpawnCoords(characterData, isNewCharacter)
+            if spawnCoords then
+                FinishSpawn(spawnCoords, 0.0, isNewCharacter, characterData)
+            end
+            return
+        end
+
+        if IsBuiltinSpawnMode() then
+            if not isNewCharacter and Config.SpawnLocations and #Config.SpawnLocations > 0 then
+                return
+            end
+            local spawnCoords = ResolveDirectSpawnCoords(characterData, isNewCharacter)
+            if spawnCoords then
+                FinishSpawn(spawnCoords, 0.0, isNewCharacter, characterData)
+            end
+            return
+        end
+
+        TriggerExternalCharacterSpawn({ data = characterData, isNew = isNewCharacter })
+    end)
+end
+
+function ResolveKeybindName(keybindPath, fallback)
+    if Config.Keybinds and Config.Keybinds[keybindPath] and Config.Keybinds[keybindPath].name then
+        return Config.Keybinds[keybindPath].name
+    end
+    return fallback
+end
+
+function BuildCreationConfigPayload()
+    local payload = {}
+    payload.name = CreationConfig.Name or { minLength = 2, maxLength = 30 }
+    payload.dob = CreationConfig.DOB or { format = "DD-MM-YYYY", min = 1950, max = 2007 }
+    payload.height = CreationConfig.Height
+    payload.backstory = CreationConfig.Backstory or { enable = true, minLength = 10, maxLength = 300 }
+    payload.nationalities = CreationConfig.Nationalities or {}
+    return payload
+end
+
+function SendUIReadyWhenFaded()
+    local waited = 0
+    while not IsScreenFadedIn() and waited < 3000 do
+        Wait(50)
+        waited = waited + 50
+    end
+    SendNUIMessage({ action = "setReady", ready = true })
+end
+
+function OpenMulticharUI(characters, maxCharacters, canDelete, partnerData, pendingRequests)
+    savedPartnersByChar = partnerData
+    if characters and #characters > 0 then
+        currentPreviewCharId = characters[1].id
+        currentPreviewJob = ExtractJobName(characters[1].job)
+        local savedPartner = nil
+        if Config.Partner and Config.Partner.enabled then
+            savedPartner = GetSavedPartnerForChar(characters[1].id)
+        end
+        ResolveLocationForChar(savedPartner)
+        TriggerServerEvent("zdx_multichar:previewCharacter", characters[1].id)
+        if Config.Partner and Config.Partner.enabled then
+            AutoSpawnSavedPartner(GetSavedPartnerForChar(characters[1].id))
+        end
+    else
+        local emptyCam = Config.EmptyScreenCamera
+        if emptyCam and emptyCam.camPos then
+            local camPos = emptyCam.camPos
+            local playerPed = PlayerPedId()
+            SetEntityCoords(playerPed, camPos.x, camPos.y, camPos.z - 10.0, false, false, false, false)
+            SetEntityVisible(playerPed, false, false)
+            FreezeEntityPosition(playerPed, true)
+        end
+        CameraSystem.CreateEmptyCam()
+    end
+    local defaultWeather = ResolveDefaultWeather()
+    local defaultTime = ResolveDefaultTime()
+    SendNUIMessage({
+        action = "open",
+        characters = characters or {},
+        maxCharacters = maxCharacters,
+        canDelete = canDelete,
+        locales = GetDefaultLocales(),
+        defaultLang = Config.DefaultLang,
+        credits = Config.Credits,
+        spawnMode = ResolveSpawnMode(),
+        spawnLocations = BuildSpawnLocationList(),
+        lastLocationEnabled = Config.LastLocation,
+        defaultWeather = defaultWeather,
+        defaultTime = defaultTime,
+        defaultTheme = Config.DefaultTheme,
+        defaultMenuStyle = Config.DefaultMenuStyle,
+        enableWeather = Config.Environment and Config.Environment.EnableWeather,
+        enableTime = Config.Environment and Config.Environment.EnableTime,
+        partner = partnerData,
+        pendingRequests = pendingRequests or {},
+        myServerId = GetPlayerServerId(PlayerId()),
+        changePoseKey = ResolveKeybindName("changePose", "E"),
+        changeLocationKey = ResolveKeybindName("changeLocation", "J"),
+        hideUIKey = ResolveKeybindName("hideUI", "H"),
+        cinematicBarKey = ResolveKeybindName("cinematicBar", "B"),
+        creationConfig = BuildCreationConfigPayload()
+    })
+    SetNuiFocus(true, true)
+    Wait(1000)
+    DoScreenFadeIn(1000)
+    if not characters or #characters == 0 then
+        SendUIReadyWhenFaded()
+    else
+        CreateThread(function()
+            Wait(8000)
+            if isOpen then
+                SendNUIMessage({ action = "setReady", ready = true })
+            end
+        end)
+    end
+end
+
+function PickInitialActiveLocation()
+    local selectionMode = Config.LocationSelection or "random"
+    local locations = Config.Locations
+    if selectionMode == "random" then
+        math.randomseed(GetGameTimer() + GetPlayerPed(-1))
+        ActiveLocation = PickRandomFromList(locations, function(loc)
+            return not loc.partnerDisabled
+        end)
+    elseif selectionMode == "ordered" then
+        ActiveLocation = locations[orderedLocationIndex]
+        orderedLocationIndex = orderedLocationIndex + 1
+        if orderedLocationIndex > #locations then
+            orderedLocationIndex = 1
+        end
+    elseif type(selectionMode) == "number" and locations[selectionMode] then
+        ActiveLocation = locations[selectionMode]
+    else
+        ActiveLocation = locations[1]
+    end
+end
+
+function OpenMultichar()
+    if isOpen then
+        return
+    end
+    isOpen = true
+    if not IsScreenFadedOut() then
+        DoScreenFadeOut(0)
+    end
+    Wait(50)
+    bucketReady = false
+    TriggerServerEvent("zdx_multichar:playerEnteredMultichar")
+    local bucketWait = 0
+    while not bucketReady and bucketWait < 2000 do
+        Wait(50)
+        bucketWait = bucketWait + 50
+    end
+    PickInitialActiveLocation()
+    DisplayRadar(false)
+    DisplayHud(false)
+    ShutdownLoadingScreen()
+    ShutdownLoadingScreenNui()
+    DisableThirdPartyWeatherSync()
+    local playerPed = PlayerPedId()
+    local locationCoords = ActiveLocation.coords
+    SetEntityCoords(playerPed, locationCoords.x, locationCoords.y, locationCoords.z - 10.0, false, false, false, false)
+    SetEntityVisible(playerPed, false, false)
+    FreezeEntityPosition(playerPed, true)
+    LoadPreviewArea()
+    while not jsLoaded do
+        Wait(500)
+    end
+    Core.TriggerCallback("zdx_multichar:getCharacters", function(response)
+        local characters, maxCharacters, canDelete
+        if response and response.characters then
+            characters = response.characters
+            maxCharacters = response.maxCharacters or Config.MaxCharacters
+            canDelete = response.canDelete
+        else
+            characters = response or {}
+            maxCharacters = Config.MaxCharacters
+            canDelete = nil
+        end
+        characterList = characters or {}
+        if Config.Partner and Config.Partner.enabled then
+            Core.TriggerCallback("zdx_multichar:getPartner", function(partnerResponse)
+                OpenMulticharUI(characters, maxCharacters, canDelete, partnerResponse.partners, partnerResponse.pending)
+            end)
+        else
+            OpenMulticharUI(characters, maxCharacters, canDelete, nil, nil)
+        end
+    end)
+end
+
+function CloseMultichar(skipServerLeaveEvent)
+    if not isOpen then
+        return
+    end
+    if not IsScreenFadedOut() then
+        DoScreenFadeOut(500)
+    end
+    while not IsScreenFadedOut() do
+        Wait(250)
+    end
+    isOpen = false
+    currentPreviewJob = nil
+    characterList = {}
+    SetNuiFocus(false, false)
+    SendNUIMessage({ action = "close" })
+    DeletePreviewPed()
+    if CleanupPartnerOnClose then
+        CleanupPartnerOnClose()
+    end
+    CameraSystem.DestroyAllCams()
+    SettingsHandler.ResetAll()
+    UnloadPreviewAssets()
+    EnableThirdPartyWeatherSync()
+    local playerPed = PlayerPedId()
+    SetEntityVisible(playerPed, true, false)
+    FreezeEntityPosition(playerPed, false)
+    SetEntityCollision(playerPed, true, true)
+    SetPlayerControl(PlayerId(), true, 0)
+    DisplayRadar(true)
+    DisplayHud(true)
+    SetRainLevel(0.0)
+    if not skipServerLeaveEvent then
+        TriggerServerEvent("zdx_multichar:playerLeftMultichar")
+    end
+end
+
+function FinishSpawn(spawnCoords, heading, isNewCharacter, characterData)
+    isNewCharacter = isNewCharacter == true
+    CloseMultichar(spawnCoords ~= nil)
+    if spawnCoords then
+        DeletePreviewPed()
+        if CleanupPartnerOnClose then
+            CleanupPartnerOnClose()
+        end
+        StopSoloScene()
+        UnloadPreviewAssets()
+        if not IsValidSpawnCoord(spawnCoords.x, spawnCoords.y, spawnCoords.z) then
+            _print(("[zdx MULTICHARV3] ^1FinishSpawn INVALID coords^7: x=%s y=%s z=%s â€” using EmergencySpawnLocation fallback"):format(
+                tostring(spawnCoords.x), tostring(spawnCoords.y), tostring(spawnCoords.z)
+            ))
+            if Config.EmergencySpawnLocation then
+                spawnCoords = Config.EmergencySpawnLocation
+                heading = 0.0
+            end
+        end
+        local playerPed = PlayerPedId()
+        SetEntityCoords(playerPed, spawnCoords.x, spawnCoords.y, spawnCoords.z, false, false, false, false)
+        if heading then
+            SetEntityHeading(playerPed, heading)
+        end
+        EnableThirdPartyWeatherSync()
+        ClearAreaOfPeds(spawnCoords.x, spawnCoords.y, spawnCoords.z, 300.0, 1)
+        ClearAreaOfVehicles(spawnCoords.x, spawnCoords.y, spawnCoords.z, 300.0, false, false, false, false, false)
+        RequestCollisionAtCoord(spawnCoords.x, spawnCoords.y, spawnCoords.z)
+        local collisionWait = 0
+        while not HasCollisionLoadedAroundEntity(PlayerPedId()) and collisionWait < 3000 do
+            Wait(0)
+            collisionWait = collisionWait + 16
+        end
+        TriggerServerEvent("zdx_multichar:playerLeftMultichar")
+    end
+    Wait(3000)
+    DoScreenFadeIn(2000)
+    if Config.Clothing then
+        Wait(1000)
+        if isNewCharacter then
+            ClothingBridge.OpenCreateMenu(characterData)
+        end
+    end
+    if SpawnBridge and SpawnBridge.OnSpawnFinished then
+        SpawnBridge.OnSpawnFinished(spawnCoords, heading)
+    end
+    if GetResourceState("rcore_clothing") == "started" then
+        SetTimeout(2500, function()
+            TriggerServerEvent("rcore_clothing:reloadSkin")
+        end)
+    end
+    if Core.Framework == "esx" then
+        SetTimeout(3000, function()
+            local ped = PlayerPedId()
+            SetCanAttackFriendly(ped, true, false)
+            NetworkSetFriendlyFireOption(true)
+        end)
+    end
+end
+
+SpawnBridge.FinishSpawn = FinishSpawn
+
+function TriggerExternalCharacterSpawn(nuiData)
+    CreateThread(function()
+        if not IsScreenFadedOut() then
+            DoScreenFadeOut(250)
+        end
+        while not IsScreenFadedOut() do
+            Wait(150)
+        end
+        Wait(1000)
+    end)
+    if SpawnBridge and SpawnBridge.TriggerExternalSpawn then
+        SpawnBridge.TriggerExternalSpawn(nuiData.data, nuiData.isNew)
+    end
+end
+
+function ResolveSpawnSelection(data)
+    if data.id == "last_location" then
+        if not data.coords then
+            return nil
+        end
+        if not IsValidSpawnCoord(data.coords.x, data.coords.y, data.coords.z) then
+            _print(("[zdx MULTICHARV3] ^1INVALID last_location coords detected^7: x=%s y=%s z=%s â€” falling back to EmergencySpawnLocation"):format(
+                tostring(data.coords.x), tostring(data.coords.y), tostring(data.coords.z)
+            ))
+            if Config.EmergencySpawnLocation then
+                return { coords = Config.EmergencySpawnLocation, heading = 0.0 }
+            end
+            return nil
+        end
+        local heading = data.coords.w or data.coords.a or data.coords.heading or 0.0
+        return {
+            coords = vector3(data.coords.x, data.coords.y, data.coords.z),
+            heading = heading
+        }
+    end
+    for _, spawnLoc in ipairs(Config.SpawnLocations) do
+        if spawnLoc.id == data.id then
+            return spawnLoc
+        end
+    end
+    return nil
+end
+
+function ResolveSpawnPreviewSelection(data)
+    if data.id == "last_location" then
+        if not data.coords then
+            return nil
+        end
+        if not IsValidSpawnCoord(data.coords.x, data.coords.y, data.coords.z) then
+            _print(("[zdx MULTICHARV3] ^1INVALID last_location preview coords^7: x=%s y=%s z=%s"):format(
+                tostring(data.coords.x), tostring(data.coords.y), tostring(data.coords.z)
+            ))
+            data.coords = Config.EmergencySpawnLocation
+        end
+        local heading = data.coords.w or data.coords.a or data.coords.heading or 0.0
+        return {
+            id = "last_location",
+            coords = vector3(data.coords.x, data.coords.y, data.coords.z),
+            heading = heading,
+            camHeight = data.camHeight or 50.0
+        }
+    end
+    for _, spawnLoc in ipairs(Config.SpawnLocations) do
+        if spawnLoc.id == data.id then
+            return spawnLoc
+        end
+    end
+    return nil
+end
+
+function gameInitThread()
+    DoScreenFadeOut(0)
+    while not Core.Framework do
+        Wait(100)
+    end
+    while not PlayerPedId() or PlayerPedId() == 0 do
+        Wait(100)
+    end
+    Wait(500)
+    while not NetworkIsSessionStarted() do
+        Wait(0)
+    end
+    if not multicharInitDone then
+        multicharInitDone = true
+        OpenMultichar()
+    end
+end
+
+DoScreenFadeIn(0)
+
+CreateThread(function()
+    pcall(function()
+        exports.spawnmanager:setAutoSpawnCallback(function() end)
+        exports.spawnmanager:setAutoSpawn(false)
+        exports.spawnmanager:forceRespawn(false)
+    end)
+    while not NetworkIsPlayerActive(PlayerId()) do
+        Wait(0)
+    end
+    while not isOpen do
+        local playerPed = PlayerPedId()
+        if playerPed ~= 0 and DoesEntityExist(playerPed) then
+            SetEntityVisible(playerPed, false, false)
+            FreezeEntityPosition(playerPed, true)
+            SetEntityInvincible(playerPed, true)
+            SetEntityCollision(playerPed, false, false)
+            SetPlayerControl(PlayerId(), false, 0)
+        end
+        Wait(0)
+    end
+end)
+
+CreateThread(gameInitThread)
+
+RegisterNetEvent("zdx_multichar:client:bucketReady", function()
+    bucketReady = true
+end)
+
+function PerformLocationSwitch()
+    DoScreenFadeOut(300)
+    while not IsScreenFadedOut() do
+        Wait(100)
+    end
+    SettingsHandler.OnLocationChange()
+    DeletePreviewPed()
+    if CleanupPartnerOnClose then
+        CleanupPartnerOnClose()
+    end
+    LoadPreviewArea()
+    CameraSystem.CreatePreviewCam()
+    if currentPreviewCharId then
+        TriggerServerEvent("zdx_multichar:previewCharacter", currentPreviewCharId)
+        if Config.Partner and Config.Partner.enabled then
+            AutoSpawnSavedPartner(GetSavedPartnerForChar(currentPreviewCharId))
+        end
+    else
+        DoScreenFadeIn(400)
+    end
+end
+
+RegisterNUICallback("selectCharacter", function(data, cb)
+    cb("ok")
+    if not data.id then
+        return
+    end
+    TriggerServerEvent("zdx_multichar:selectCharacter", data.id)
+end)
+
+RegisterNUICallback("playCharacter", function(data, cb)
+    cb("ok")
+    if not data.data then
+        if Config.Debug then
+            _print("[zdx Multichar] playCharacter rejected: missing character data")
+        end
+        return
+    end
+    if Config.Debug then
+        _print(("[zdx Multichar] playCharacter: id=%s"):format(tostring(data.data.id)))
+    end
+    BeginCharacterSpawn(data.data, data.isNew == true)
+end)
+
+RegisterNUICallback("previewCharacter", function(data, cb)
+    cb("ok")
+    if not data.id then
+        return
+    end
+    currentPreviewCharId = data.id
+    SetPreviewJobFromCharacter(data.id)
+    local savedPartner = nil
+    if Config.Partner and Config.Partner.enabled then
+        savedPartner = GetSavedPartnerForChar(data.id)
+    end
+    local locationChanged = ResolveLocationForChar(savedPartner)
+    previewCharacterToken = previewCharacterToken + 1
+    local previewToken = previewCharacterToken
+    CreateThread(function()
+        StopSoloScene()
+        DoScreenFadeOut(300)
+        Wait(350)
+        if previewCharacterToken ~= previewToken then
+            return
+        end
+        DeletePreviewPed()
+        if locationChanged then
+            SettingsHandler.OnLocationChange()
+            local playerPed = PlayerPedId()
+            local coords = ActiveLocation.coords
+            SetEntityCoords(playerPed, coords.x, coords.y, coords.z - 10.0, false, false, false, false)
+            LoadPreviewArea()
+            CameraSystem.CreatePreviewCam()
+        else
+            CameraSystem.ApplyEnvironment()
+        end
+        TriggerServerEvent("zdx_multichar:previewCharacter", data.id)
+        if Config.Partner and Config.Partner.enabled then
+            AutoSpawnSavedPartner(GetSavedPartnerForChar(data.id))
+        end
+    end)
+end)
+
+RegisterNUICallback("createCharacter", function(data, cb)
+    cb("ok")
+    TriggerServerEvent("zdx_multichar:createCharacter", data)
+end)
+
+RegisterNUICallback("deleteCharacter", function(data, cb)
+    cb("ok")
+    if not data.id then
+        return
+    end
+    TriggerServerEvent("zdx_multichar:deleteCharacter", data.id)
+end)
+
+RegisterNUICallback("confirmSpawn", function(data, cb)
+    cb("ok")
+    if not data.id then
+        return
+    end
+    local spawnSelection = ResolveSpawnSelection(data)
+    if spawnSelection then
+        TriggerServerEvent("zdx_multichar:confirmSpawn")
+        FinishSpawn(spawnSelection.coords, spawnSelection.heading, false)
+    end
+end)
+
+RegisterNUICallback("previewSpawn", function(data, cb)
+    if CameraSystem.IsSpawnFading() then
+        cb(false)
+        return
+    end
+    local spawnSelection = ResolveSpawnPreviewSelection(data)
+    if not spawnSelection then
+        cb(false)
+        return
+    end
+    ClearAreaOfPeds(spawnSelection.coords.x, spawnSelection.coords.y, spawnSelection.coords.z, 100.0, 1)
+    ClearAreaOfVehicles(spawnSelection.coords.x, spawnSelection.coords.y, spawnSelection.coords.z, 100.0, false, false, false, false, false)
+    local camHeight = spawnSelection.camHeight or 80.0
+    local camPos = spawnSelection.coords + vector3(1.0, 1.0, camHeight)
+    CameraSystem.InterpToCoords(camPos, spawnSelection.coords, spawnSelection.coords, Config.Preview.interpDuration)
+    cb(true)
+end)
+
+RegisterNUICallback("backToCharacters", function(data, cb)
+    cb("ok")
+    CameraSystem.StopSpawnStream()
+    local playerPed = PlayerPedId()
+    local coords = ActiveLocation.coords
+    SetEntityCoords(playerPed, coords.x, coords.y, coords.z - 10.0, false, false, false, false)
+    SetEntityVisible(playerPed, false, false)
+    FreezeEntityPosition(playerPed, true)
+    if currentPreviewCharId then
+        TriggerServerEvent("zdx_multichar:previewCharacter", currentPreviewCharId)
+        if Config.Partner and Config.Partner.enabled then
+            AutoSpawnSavedPartner(GetSavedPartnerForChar(currentPreviewCharId))
+        end
+    else
+        SpawnPreviewPed()
+        local anims = zdx.GetAllAnimations()
+        if #anims > 0 then
+            StartSoloAnimLoop(previewPed, anims)
+        else
+            TaskStandStill(previewPed, -1)
+        end
+        CameraSystem.CreatePreviewCam()
+    end
+end)
+
+RegisterNUICallback("closeUI", function(data, cb)
+    cb("ok")
+    CloseMultichar()
+end)
+
+RegisterNUICallback("SendNUI", function(data, cb)
+    cb("ok")
+end)
+
+RegisterNUICallback("quitGame", function(data, cb)
+    cb("ok")
+    TriggerServerEvent("zdx_multichar:server:quitGame")
+end)
+
+RegisterNetEvent("zdx_multichar:client:updateCharacters", function(characters)
+    characterList = characters or {}
+    SendNUIMessage({ action = "setCharacters", characters = characters })
+end)
+
+RegisterNetEvent("zdx_multichar:client:characterCreated", function(characters, newCharId)
+    characterList = characters or {}
+
+    local newChar = FindCharacterInList(characterList, newCharId)
+    if not newChar and #characterList > 0 then
+        newChar = characterList[#characterList]
+    end
+
+    SendNUIMessage({ action = "setReady", ready = true })
+    if #characterList > 0 then
+        SendNUIMessage({ action = "setCharacters", characters = characterList })
+    end
+    SendNUIMessage({ action = "characterCreated" })
+
+    if newChar then
+        currentPreviewCharId = newChar.id
+        currentPreviewJob = ExtractJobName(newChar.job)
+        CreateThread(function()
+            Wait(50)
+            BeginCharacterSpawn(newChar, true)
+        end)
+    elseif Config.Debug then
+        _print(("[zdx Multichar] characterCreated: no spawn target (newCharId=%s, count=%s)"):format(
+            tostring(newCharId),
+            tostring(#characterList)
+        ))
+    end
+end)
+
+RegisterNetEvent("zdx_multichar:client:characterCreateFailed", function(reason)
+    SendNUIMessage({ action = "setReady", ready = true })
+    SendNUIMessage({ action = "characterCreated" })
+    if Config.Debug and reason then
+        _print(("[zdx Multichar] Character creation failed: %s"):format(tostring(reason)))
+    end
+end)
+
+RegisterNetEvent("zdx_multichar:client:characterDeleted", function(characters)
+    characterList = characters or {}
+    SendNUIMessage({ action = "characterDeleted", characters = characters })
+end)
+
+RegisterNetEvent("zdx_multichar:client:previewFailed", function()
+    if Config.Debug then
+        _print("[zdx Multichar] Character preview failed on server")
+    end
+    CameraSystem.CreatePreviewCam()
+    Wait(1000)
+    DoScreenFadeIn(400)
+    SendUIReadyWhenFaded()
+end)
+
+RegisterNetEvent("zdx_multichar:client:previewPed", function(modelHash, appearance)
+    local ped = SpawnPreviewPed(modelHash)
+    if ped then
+        pcall(function()
+            ClothingBridge.ApplyAppearance(ped, appearance)
+        end)
+        Wait(50)
+        if DoesEntityExist(ped) then
+            local savedPartner = nil
+            if Config.Partner and Config.Partner.enabled and currentPreviewCharId then
+                savedPartner = GetSavedPartnerForChar(currentPreviewCharId)
+            end
+            if not savedPartner then
+                local anims = zdx.GetAllAnimations()
+                if #anims > 0 then
+                    StartSoloAnimLoop(ped, anims)
+                else
+                    TaskStandStill(ped, -1)
+                end
+            else
+                TaskStandStill(ped, -1)
+            end
+        end
+        CameraSystem.InterpToPreviewPed(ped)
+    else
+        if Config.Debug then
+            _print("[zdx Multichar] Preview ped spawn failed â€” enabling UI anyway")
+        end
+        CameraSystem.CreatePreviewCam()
+    end
+    Wait(1000)
+    DoScreenFadeIn(400)
+    SendUIReadyWhenFaded()
+end)
+
+RegisterNetEvent("zdx_multichar:client:onPlayerLoaded", function()
+    if Core.Framework == "qb" then
+        TriggerServerEvent("QBCore:Server:OnPlayerLoaded")
+        TriggerEvent("QBCore:Client:OnPlayerLoaded")
+    elseif Core.Framework == "esx" then
+        TriggerEvent("esx:playerLoaded", Core.GetPlayerData())
+    end
+end)
+
+RegisterNetEvent("zdx_multichar:client:openSpawnSelect", function()
+    if not isOpen then
+        return
+    end
+    DeletePreviewPed()
+    TriggerEvent("zdx_multichar:client:cleanup")
+    SendNUIMessage({ action = "openSpawnSelect" })
+end)
+
+AddEventHandler("playerSpawned", function()
+    if multicharInitDone then
+        return
+    end
+    multicharInitDone = true
+    while not Core.Framework do
+        Wait(100)
+    end
+    OpenMultichar()
+end)
+
+RegisterNetEvent("zdx_multichar:client:open", function()
+    if not multicharInitDone then
+        multicharInitDone = true
+        OpenMultichar()
+    end
+end)
+
+RegisterNetEvent("zdx_multichar:client:logout", function()
+    if isOpen then
+        return
+    end
+    DoScreenFadeOut(500)
+    Wait(600)
+    multicharInitDone = true
+    isOpen = false
+    OpenMultichar()
+end)
+
+CreateThread(function()
+    while true do
+        if isOpen then
+            DisableAllControlActions(0)
+        else
+            Wait(500)
+        end
+        Wait(0)
+    end
+end)
+
+AddEventHandler("onResourceStop", function(resourceName)
+    if resourceName ~= GetCurrentResourceName() then
+        return
+    end
+    if isOpen then
+        SetNuiFocus(false, false)
+        DeletePreviewPed()
+        CameraSystem.DestroyAllCams()
+        SettingsHandler.ResetAll()
+        local playerPed = PlayerPedId()
+        SetEntityVisible(playerPed, true, false)
+        FreezeEntityPosition(playerPed, false)
+        DisplayRadar(true)
+        DisplayHud(true)
+        DoScreenFadeIn(0)
+    end
+end)
+
+RegisterNUICallback("jsLoaded", function(data, cb)
+    jsLoaded = true
+    cb("ok")
+end)
+
+RegisterNUICallback("changeLocation", function(data, cb)
+    local elapsed = GetGameTimer() - lastLocationChangeTime
+    if elapsed < 1500 then
+        cb(1)
+        return
+    end
+    lastLocationChangeTime = GetGameTimer()
+    local savedPartner = nil
+    if Config.Partner and Config.Partner.enabled then
+        savedPartner = GetSavedPartnerForChar(currentPreviewCharId)
+    end
+    if ResolveLocationForChar(savedPartner) then
+        PerformLocationSwitch()
+    end
+    cb(1)
+end)
+
+RegisterNUICallback("changePose", function(data, cb)
+    local elapsed = GetGameTimer() - lastPoseChangeTime
+    if elapsed < 1000 then
+        cb(1)
+        return
+    end
+    lastPoseChangeTime = GetGameTimer()
+    if _G.ChangePartnerPose and _G.ChangePartnerPose() then
+        cb(1)
+        return
+    end
+    if previewPed and DoesEntityExist(previewPed) then
+        local allAnims = zdx.GetAllAnimations()
+        local animPool = {}
+        for _, anim in ipairs(allAnims) do
+            animPool[#animPool + 1] = anim
+        end
+        if #animPool > 0 then
+            StartSoloAnimLoop(previewPed, animPool)
+        end
+    end
+    cb(1)
+end)
+
+northYanktonIpls = {
+    "prologue01", "prologue01c", "prologue01d", "prologue01e", "prologue01f", "prologue01g",
+    "prologue01h", "prologue01i", "prologue01j", "prologue01k", "prologue01z", "prologue02",
+    "prologue03", "prologue03b", "prologue03_grv_dug", "prologue_grv_torch", "prologue04",
+    "prologue04b", "prologue04_cover", "des_protree_end", "des_protree_start", "prologue05",
+    "prologue05b", "prologue06", "prologue06b", "prologue06_int", "prologue06_pannel",
+    "plg_occl_00", "prologue_occl", "prologuerd", "prologuerdb"
+}
+
+northYanktonStreamCoords = vector3(3217.697, -4834.826, 111.815)
+northYanktonLoadDistance = 2000.0
+northYanktonUnloadDistance = 2200.0
+northYanktonLoaded = false
+
+function LoadNorthYanktonIpls()
+    for _, iplName in ipairs(northYanktonIpls) do
+        if not IsIplActive(iplName) then
+            RequestIpl(iplName)
+        end
+    end
+    northYanktonLoaded = true
+end
+
+function UnloadNorthYanktonIpls()
+    for _, iplName in ipairs(northYanktonIpls) do
+        if IsIplActive(iplName) then
+            RemoveIpl(iplName)
+        end
+    end
+    northYanktonLoaded = false
+end
+
+print = function(...)
+    if Config.Debug then
+        return _print("[zdx_multichar]", ...)
+    end
+    return false
+end
+

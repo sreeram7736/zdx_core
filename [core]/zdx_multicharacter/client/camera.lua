@@ -1,70 +1,105 @@
-function FocusOnCharacter(slot)
-    local room = currentRoom
-    if not room or not room.positions[slot] then 
-        ReturnToMainCamera()
-        return 
-    end
-    
-    local pos = room.positions[slot]
-    if not pos.camera then 
-        ReturnToMainCamera()
-        return 
-    end
-    
-    local camData = pos.camera
-    
-    local newCam = CreateCamWithParams(
+CameraSystem = {}
+
+local activeCam = nil
+local spawnFading = false
+local spawnStreamCoords = nil
+
+function CameraSystem.CreatePreviewCam()
+    CameraSystem.DestroyAllCams()
+
+    local cfg = Config.CinematicRoom
+    if not cfg then return end
+
+    activeCam = CreateCamWithParams(
         "DEFAULT_SCRIPTED_CAMERA",
-        camData.x, camData.y, camData.z,
+        cfg.camCoords.x, cfg.camCoords.y, cfg.camCoords.z,
         0.0, 0.0, 0.0,
-        Config.Cameras.fov.default,
+        cfg.fov or 50.0,
         false, 0
     )
-    
-    -- Point camera at ped
-    if characterPeds[slot] and DoesEntityExist(characterPeds[slot]) then
-        PointCamAtEntity(newCam, characterPeds[slot], 0.0, 0.0, 0.5, true)
-    else
-        PointCamAtCoord(newCam, camData.x, camData.y, camData.z)
-    end
-    
-    if activeCam and DoesCamExist(activeCam) then
-        SetCamActiveWithInterp(newCam, activeCam, Config.Cameras.transitionSpeed, 1, 1)
-        
-        CreateThread(function()
-            Wait(Config.Cameras.transitionSpeed)
-            DestroyCam(activeCam, false)
-        end)
-    else
-        SetCamActive(newCam, true)
-        RenderScriptCams(true, false, 0, true, true)
-    end
-    
-    activeCam = newCam
+
+    PointCamAtCoord(activeCam, cfg.camPointAt.x, cfg.camPointAt.y, cfg.camPointAt.z)
+    SetCamActive(activeCam, true)
+    RenderScriptCams(true, false, 0, true, false)
 end
 
-function ReturnToMainCamera()
-    if not inCharacterMenu then return end
-    CreateMainCamera()
-end
+function CameraSystem.DestroyAllCams()
+    spawnFading = false
+    spawnStreamCoords = nil
 
--- Easing functions
-function EaseInOutCubic(t)
-    if t < 0.5 then
-        return 4 * t * t * t
-    else
-        return 1 - math.pow(-2 * t + 2, 3) / 2
+    if activeCam then
+        SetCamActive(activeCam, false)
+        DestroyCam(activeCam, false)
+        activeCam = nil
     end
+
+    RenderScriptCams(false, false, 0, true, false)
 end
 
-function EaseInOutQuad(t)
-    if t < 0.5 then
-        return 2 * t * t
-    else
-        return 1 - math.pow(-2 * t + 2, 2) / 2
+function CameraSystem.ApplyEnvironment()
+    local cfg = Config.CinematicRoom
+    if not cfg then return end
+
+    local weather = cfg.weather or "CLEAR"
+    SetWeatherTypePersist(weather)
+    SetWeatherTypeNowPersist(weather)
+    SetOverrideWeather(weather)
+
+    local time = cfg.time or { hour = 12, minute = 0 }
+    NetworkOverrideClockTime(time.hour, time.minute, 0)
+end
+
+function CameraSystem.InterpToCoords(camPos, pointAt, streamCoords, _unused)
+    if spawnFading then return end
+    spawnFading = true
+    spawnStreamCoords = streamCoords
+
+    CreateThread(function()
+        DoScreenFadeOut(0)
+        while not IsScreenFadedOut() do
+            Wait(250)
+        end
+
+        if not activeCam then
+            activeCam = CreateCamWithParams(
+                "DEFAULT_SCRIPTED_CAMERA",
+                camPos.x, camPos.y, camPos.z,
+                0.0, 0.0, 0.0,
+                50.0,
+                false, 0
+            )
+            SetCamActive(activeCam, true)
+            RenderScriptCams(true, false, 0, true, false)
+        else
+            SetCamCoord(activeCam, camPos.x, camPos.y, camPos.z)
+        end
+
+        PointCamAtCoord(activeCam, pointAt.x, pointAt.y, pointAt.z)
+        DoScreenFadeIn(750)
+        Wait(750)
+        spawnFading = false
+    end)
+end
+
+function CameraSystem.StopSpawnStream()
+    spawnStreamCoords = nil
+end
+
+function CameraSystem.IsSpawnFading()
+    return spawnFading
+end
+
+CreateThread(function()
+    while true do
+        if spawnStreamCoords then
+            local ped = PlayerPedId()
+            SetEntityCoords(ped, spawnStreamCoords.x, spawnStreamCoords.y, spawnStreamCoords.z, false, false, false, false)
+            SetEntityVisible(ped, false, false)
+            FreezeEntityPosition(ped, true)
+            SetEntityHealth(ped, 200)
+        else
+            Wait(500)
+        end
+        Wait(0)
     end
-end
-
-function EaseInOutSine(t)
-    return -(math.cos(math.pi * t) - 1) / 2
-end
+end)
