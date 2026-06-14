@@ -7,7 +7,7 @@ Config.Debug = true
 Config.Framework     = "Auto"   
 
 Config.Clothing      = "illenium-appearance"   
-Config.DefaultLang   = "tr"
+Config.DefaultLang   = "en"
 Config.Keybinds = {
     changePose     = { key = 38,  name = "E" },  
     changeLocation = { key = 74,  name = "J" },  
