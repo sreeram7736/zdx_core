@@ -4,7 +4,7 @@ Config = {}
 
 Config.Debug = true
 
-Config.Framework     = "Auto"   
+Config.Framework     = "esx"   
 
 Config.Clothing      = "illenium-appearance"   
 Config.DefaultLang   = "en"
