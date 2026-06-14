@@ -58,4 +58,7 @@ escrow_ignore {
     "shared/webhooks.lua",
     "shared/bridge/*.lua",
 }
-dependency 'oxmysql'
+dependencies {
+    'oxmysql',
+    'zdx_core',
+}

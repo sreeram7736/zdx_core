@@ -9,6 +9,40 @@ SET SQL_MODE = "NO_AUTO_VALUE_ON_ZERO";
 SET FOREIGN_KEY_CHECKS = 0;
 
 -- ============================================================
+--  ESX COMPATIBILITY TABLES (required by ox_inventory)
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS `users` (
+  `identifier` VARCHAR(60) NOT NULL,
+  `accounts`   LONGTEXT    DEFAULT NULL,
+  `group`      VARCHAR(50) NOT NULL DEFAULT 'user',
+  `inventory`  LONGTEXT    DEFAULT NULL,
+  `job`        VARCHAR(50) NOT NULL DEFAULT 'unemployed',
+  `job_grade`  INT(11)     NOT NULL DEFAULT 0,
+  `loadout`    LONGTEXT    DEFAULT NULL,
+  `position`   LONGTEXT    DEFAULT NULL,
+  `firstname`  VARCHAR(50) DEFAULT NULL,
+  `lastname`   VARCHAR(50) DEFAULT NULL,
+  `dateofbirth` VARCHAR(25) DEFAULT NULL,
+  `sex`        VARCHAR(10) DEFAULT NULL,
+  `skin`       LONGTEXT    DEFAULT NULL,
+  PRIMARY KEY (`identifier`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  COMMENT='ESX-compatible users table for ox_inventory bridge';
+
+CREATE TABLE IF NOT EXISTS `licenses` (
+  `type`  VARCHAR(60) NOT NULL,
+  `label` VARCHAR(60) NOT NULL,
+  PRIMARY KEY (`type`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  COMMENT='License types for ox_inventory';
+
+INSERT IGNORE INTO `licenses` (`type`, `label`) VALUES
+('weapon', 'Weapon License'),
+('dmv',    'Driving License');
+
+
+-- ============================================================
 --  CORE PLAYERS
 -- ============================================================
 
