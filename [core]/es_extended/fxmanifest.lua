@@ -6,5 +6,6 @@ description 'ZDX ESX Compatibility Bridge — provides es_extended exports for o
 version '1.10.0'
 
 server_script 'server.lua'
+client_script 'client.lua'
 
 dependency 'zdx_core'
