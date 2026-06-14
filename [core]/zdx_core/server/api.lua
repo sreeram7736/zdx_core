@@ -21,11 +21,8 @@ ZDX.RegisteredCommands = {}
 -- CORE OBJECT EXPORT
 -- ══════════════════════════════════════════════════════════════
 
-local function getCoreObject()
-    return ZDX
-end
+-- Export moved to the end of the loading sequence to ensure all functions are attached
 
-exports('GetCoreObject', getCoreObject)
 
 -- ══════════════════════════════════════════════════════════════
 -- PLAYER FUNCTIONS

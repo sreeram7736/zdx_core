@@ -18,11 +18,7 @@ ZDX.serverId = GetPlayerServerId(ZDX.playerId)
 -- CORE OBJECT EXPORT
 -- ══════════════════════════════════════════════════════════════
 
-local function getCoreObject()
-    return ZDX
-end
-
-exports('GetCoreObject', getCoreObject)
+-- Export moved to the end of the loading sequence to ensure all functions are attached
 
 -- ══════════════════════════════════════════════════════════════
 -- PLAYER DATA

@@ -14,15 +14,7 @@ QBCore.Shared = {
 }
 QBCore.Players = {}
 
--- ── The shared object that QB scripts request ──
-exports('GetCoreObject', function()
-    return QBCore
-end)
-
-exports('GetSharedObject', function()
-    return QBCore
-end)
-
+-- Exports moved to the end of the loading sequence
 -- ══════════════════════════════════════════════════════════════
 -- LISTEN TO ZDX EVENTS → FIRE QB EVENTS
 -- ══════════════════════════════════════════════════════════════

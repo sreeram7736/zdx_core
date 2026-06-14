@@ -20,6 +20,7 @@ server_scripts {
     'server/commands.lua',
     'bridge/esx/server.lua',
     'bridge/qb/server.lua',
+    'server/exports.lua',
 }
 
 client_scripts {
@@ -30,6 +31,7 @@ client_scripts {
     'client/cinematic.lua',
     'bridge/esx/client.lua',
     'bridge/qb/client.lua',
+    'client/exports.lua',
 }
 
 dependencies {

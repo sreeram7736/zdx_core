@@ -23,12 +23,7 @@ ESX.Game.Utils = {}
 -- SHARED OBJECT
 -- ══════════════════════════════════════════════════════════════
 
-local function getSharedObject()
-    return ESX
-end
-
-exports('getSharedObject', getSharedObject)
-
+-- Export moved to the end of the loading sequence
 AddEventHandler('esx:getSharedObject', function(cb)
     cb(ESX)
 end)

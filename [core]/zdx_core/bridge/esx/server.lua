@@ -16,12 +16,8 @@ Core.playersByIdentifier = {}
 Core.JobsPlayerCount = {}
 Core.RegisteredCommands = {}
 
--- ── The shared object that ESX scripts request ──
-local function getSharedObject()
-    return ESX
-end
+-- Export moved to the end of the loading sequence
 
-exports('getSharedObject', getSharedObject)
 
 AddEventHandler('esx:getSharedObject', function(cb)
     cb(ESX)
@@ -203,6 +199,11 @@ end
 
 function Core.SavePlayers()
     ZDX.SavePlayers()
+end
+
+--- Get Configuration (ox_inventory requires this)
+function ESX.GetConfig()
+    return Config
 end
 
 print('^2[ZDX]^0 ESX Server Bridge loaded.')
