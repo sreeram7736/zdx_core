@@ -37,15 +37,8 @@ end)
 -- PLAYER JOINED (after fully connected)
 -- ══════════════════════════════════════════════════════════════
 
-RegisterNetEvent('zdx_core:server:playerJoined', function()
-    local src = source
+local function LoadPlayerAndSpawn(src, identifier)
     if ZDX.Players[src] then return end -- Already loaded
-
-    local identifier = GetPlayerIdentifierByType(src, 'license2') or GetPlayerIdentifierByType(src, 'license')
-    if not identifier then
-        DropPlayer(tostring(src), 'No valid license found.')
-        return
-    end
 
     local playerName = GetPlayerName(src)
 
@@ -78,6 +71,20 @@ RegisterNetEvent('zdx_core:server:playerJoined', function()
 
     -- Send data to client for spawning
     TriggerClientEvent('zdx_core:client:spawnPlayer', src, spawnPos, Config.DefaultModel, zdxPlayer.PlayerData)
+end
+
+RegisterNetEvent('zdx_core:server:playerJoined', function()
+    local src = source
+    local identifier = GetPlayerIdentifierByType(src, 'license2') or GetPlayerIdentifierByType(src, 'license')
+    if not identifier then
+        DropPlayer(tostring(src), 'No valid license found.')
+        return
+    end
+    LoadPlayerAndSpawn(src, identifier)
+end)
+
+AddEventHandler('zdx_core:server:loadCharacter', function(src, identifier)
+    LoadPlayerAndSpawn(src, identifier)
 end)
 
 -- ══════════════════════════════════════════════════════════════

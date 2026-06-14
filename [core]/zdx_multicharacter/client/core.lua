@@ -6,6 +6,7 @@ Core.Obj = nil
 local FrameworkResources = {
     esx = { "es_extended", "esx_core" },
     qb  = { "qb-core", "qbx_core" },
+    zdx = { "zdx_core" },
 }
 
 local ClothingResources = {
@@ -52,6 +53,10 @@ local function InitFrameworkObject(framework)
                 Core.Obj = exports["qb-core"]:GetCoreObject()
             end
         end
+    elseif framework == "zdx" then
+        if GetResourceState("zdx_core") == "started" then
+            Core.Obj = exports["zdx_core"]:GetCoreObject()
+        end
     end
 end
 
@@ -60,6 +65,8 @@ function Core.GetPlayerData()
         return Core.Obj.GetPlayerData()
     elseif Core.Framework == "qb" then
         return Core.Obj.Functions.GetPlayerData()
+    elseif Core.Framework == "zdx" then
+        return Core.Obj.GetPlayerData()
     end
     return {}
 end
@@ -69,6 +76,8 @@ function Core.TriggerCallback(callbackName, resultCallback, ...)
         Core.Obj.TriggerServerCallback(callbackName, resultCallback, ...)
     elseif Core.Framework == "qb" then
         Core.Obj.Functions.TriggerCallback(callbackName, resultCallback, ...)
+    elseif Core.Framework == "zdx" then
+        Core.Obj.TriggerCallback(callbackName, resultCallback, ...)
     end
 end
 

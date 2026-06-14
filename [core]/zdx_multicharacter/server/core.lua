@@ -7,6 +7,7 @@ ServerCore.FrameworkBridge = nil
 local FrameworkResources = {
     esx = { "es_extended", "esx_core" },
     qb = { "qb-core", "qbx_core" },
+    zdx = { "zdx_core" },
 }
 
 function ServerCore.DetectFramework()
@@ -46,6 +47,10 @@ function ServerCore.InitFrameworkObject(framework)
                 ServerCore.Obj = exports["qb-core"]:GetCoreObject()
             end
         end
+    elseif framework == "zdx" then
+        if GetResourceState("zdx_core") == "started" then
+            ServerCore.Obj = exports["zdx_core"]:GetCoreObject()
+        end
     end
 end
 
@@ -76,6 +81,8 @@ function ServerCore.CreateCallback(name, handler)
         ServerCore.Obj.Functions.CreateCallback(name, handler)
     elseif ServerCore.Framework == "esx" and ServerCore.Obj then
         ServerCore.Obj.RegisterServerCallback(name, handler)
+    elseif ServerCore.Framework == "zdx" and ServerCore.Obj then
+        ServerCore.Obj.RegisterCallback(name, handler)
     end
 end
 
@@ -91,6 +98,8 @@ function ServerCore.GetPlayer(source)
         return ServerCore.Obj.Functions.GetPlayer(source)
     elseif ServerCore.Framework == "esx" and ServerCore.Obj then
         return ServerCore.Obj.GetPlayerFromId(source)
+    elseif ServerCore.Framework == "zdx" and ServerCore.Obj then
+        return ServerCore.Obj.GetPlayer(source)
     end
     return nil
 end

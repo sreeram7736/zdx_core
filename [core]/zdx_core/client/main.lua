@@ -10,7 +10,9 @@ CreateThread(function()
     while true do
         Wait(0)
         if NetworkIsPlayerActive(PlayerId()) then
-            TriggerServerEvent('zdx_core:server:playerJoined')
+            if GetResourceState('zdx_multicharacter') ~= 'started' then
+                TriggerServerEvent('zdx_core:server:playerJoined')
+            end
             break
         end
     end
