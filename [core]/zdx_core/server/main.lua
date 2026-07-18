@@ -60,17 +60,24 @@ local function LoadPlayerAndSpawn(src, identifier)
 
     print(('^2[ZDX]^0 Player %s loaded (ID: %s | CitizenID: %s)'):format(playerName, src, zdxPlayer.citizenid))
 
-    -- Determine spawn position
-    local spawnPos = Config.DefaultSpawn
-    if dbData.position then
-        local pos = dbData.position
-        if pos.x and pos.y and pos.z then
-            spawnPos = vector4(pos.x, pos.y, pos.z, pos.heading or 0.0)
-        end
-    end
+    local hasSkin = ZDX_DB.HasSkin(identifier)
 
-    -- Send data to client for spawning
-    TriggerClientEvent('zdx_core:client:spawnPlayer', src, spawnPos, Config.DefaultModel, zdxPlayer.PlayerData)
+    if Config.UseAppearanceOnFirstSpawn and not hasSkin then
+        -- Tell the client to open illenium-appearance first
+        TriggerClientEvent('zdx_core:client:openAppearance', src)
+    else
+        -- Determine spawn position
+        local spawnPos = Config.DefaultSpawn
+        if dbData.position then
+            local pos = dbData.position
+            if pos.x and pos.y and pos.z then
+                spawnPos = vector4(pos.x, pos.y, pos.z, pos.heading or 0.0)
+            end
+        end
+
+        -- Send data to client for spawning
+        TriggerClientEvent('zdx_core:client:spawnPlayer', src, spawnPos, Config.DefaultModel, zdxPlayer.PlayerData)
+    end
 end
 
 RegisterNetEvent('zdx_core:server:playerJoined', function()
@@ -108,6 +115,25 @@ RegisterNetEvent('zdx_core:server:playerLoaded', function()
     end
 end)
 
+RegisterNetEvent('zdx_core:server:saveAppearance', function(skinData)
+    local src = source
+    local zdxPlayer = GetZDXPlayer(src)
+    if not zdxPlayer then return end
+
+    zdxPlayer.Functions.SetSkin(skinData)
+    print(('^2[ZDX]^0 Player %s saved appearance.'):format(zdxPlayer.name))
+end)
+
+RegisterNetEvent('zdx_core:server:appearanceDone', function()
+    local src = source
+    local zdxPlayer = GetZDXPlayer(src)
+    if not zdxPlayer then return end
+
+    local spawnPos = Config.DefaultSpawn
+    -- Spawn them after appearance is created
+    TriggerClientEvent('zdx_core:client:spawnPlayer', src, spawnPos, Config.DefaultModel, zdxPlayer.PlayerData)
+end)
+
 -- ══════════════════════════════════════════════════════════════
 -- PLAYER DROPPED
 -- ══════════════════════════════════════════════════════════════
@@ -130,12 +156,12 @@ AddEventHandler('playerDropped', function(reason)
 end)
 
 -- ══════════════════════════════════════════════════════════════
--- AUTO-SAVE LOOP (every 5 minutes)
+-- AUTO-SAVE LOOP (every 10 minutes)
 -- ══════════════════════════════════════════════════════════════
 
 CreateThread(function()
     while true do
-        Wait(5 * 60 * 1000) -- 5 minutes
+        Wait(10 * 60 * 1000) -- 10 minutes
         local count = 0
         for src, zdxPlayer in pairs(ZDX.Players) do
             zdxPlayer.Functions.Save()

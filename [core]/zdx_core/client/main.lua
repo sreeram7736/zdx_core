@@ -10,11 +10,7 @@ CreateThread(function()
     while true do
         Wait(0)
         if NetworkIsPlayerActive(PlayerId()) then
-            if GetResourceState('zdx_multicharacter') ~= 'started' then
-                TriggerServerEvent('zdx_core:server:playerJoined')
-            else
-                TriggerEvent('zdx_multichar:client:open')
-            end
+            TriggerServerEvent('zdx_core:server:playerJoined')
             break
         end
     end
@@ -71,6 +67,13 @@ RegisterNetEvent('zdx_core:client:spawnPlayer', function(spawnCoords, modelName,
     ZDX.PlayerData = playerData or {}
     ZDX.IsLoggedIn = true
 
+    -- Apply skin if using illenium-appearance
+    if Config.UseAppearanceOnFirstSpawn and Config.AppearanceResource == 'illenium-appearance' then
+        if ZDX.PlayerData.skin and next(ZDX.PlayerData.skin) ~= nil then
+            exports['illenium-appearance']:setPedAppearance(ped, ZDX.PlayerData.skin)
+        end
+    end
+
     -- Let server know we're fully loaded
     TriggerServerEvent('zdx_core:server:playerLoaded')
 
@@ -93,6 +96,61 @@ RegisterNetEvent('zdx_core:client:spawnPlayer', function(spawnCoords, modelName,
 
     -- State bag
     LocalPlayer.state:set('isLoggedIn', true, false)
+end)
+
+-- ══════════════════════════════════════════════════════════════
+-- APPEARANCE CREATION
+-- ══════════════════════════════════════════════════════════════
+
+RegisterNetEvent('zdx_core:client:openAppearance', function()
+    -- Fade out
+    DoScreenFadeOut(0)
+
+    local ped = PlayerPedId()
+
+    -- Spawn default male freemode ped
+    local model = joaat('mp_m_freemode_01')
+    RequestModel(model)
+    while not HasModelLoaded(model) do Wait(0) end
+
+    SetPlayerModel(PlayerId(), model)
+    SetModelAsNoLongerNeeded(model)
+
+    ped = PlayerPedId()
+    
+    -- Setup coords for ped creation (can be configured if needed, using default for now)
+    local createCoords = Config.DefaultSpawn
+    SetEntityCoordsNoOffset(ped, createCoords.x, createCoords.y, createCoords.z, false, false, false, true)
+    SetEntityHeading(ped, createCoords.w or 0.0)
+
+    -- Kill native loading screens
+    ShutdownLoadingScreen()
+    ShutdownLoadingScreenNui()
+
+    NetworkEndTutorialSession()
+    while NetworkIsInTutorialSession() do Wait(0) end
+
+    DoScreenFadeIn(1000)
+
+    -- Initialize illenium-appearance character creation
+    if Config.AppearanceResource == 'illenium-appearance' then
+        local config = {
+            ped = true,
+            headBlend = true,
+            faceFeatures = true,
+            headOverlays = true,
+            components = true,
+            props = true,
+            allowExit = false
+        }
+        
+        exports['illenium-appearance']:startPlayerCustomization(function(appearance)
+            if appearance then
+                TriggerServerEvent('zdx_core:server:saveAppearance', appearance)
+                TriggerServerEvent('zdx_core:server:appearanceDone')
+            end
+        end, config)
+    end
 end)
 
 -- ══════════════════════════════════════════════════════════════

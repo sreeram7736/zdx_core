@@ -82,6 +82,8 @@ Config.Gangs = {
 -- ══════════════════════════════════════════════════════════════
 -- SERVER SETTINGS
 -- ══════════════════════════════════════════════════════════════
-Config.ServerName = 'ZDX Server'
+Config.ServerName = 'ZDX Public Server'
 Config.MaxCharacters = 1 -- Set to 1 for cinematic (no multichar)
+Config.UseAppearanceOnFirstSpawn = true
+Config.AppearanceResource = 'illenium-appearance'
 Config.PVP = true

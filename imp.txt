@@ -1,0 +1,37 @@
+Native ZDX Framework Integration for Multicharacter
+The current zdx_multicharacter was essentially a modified multicharacter script built for esx and qb. Since you are running your own custom ZDX Framework (zdx_core), the script falls back to detecting ESX compatibility mode and attempts to read from the users database table instead of your actual zdx_users table.
+
+This plan outlines the steps to natively integrate zdx_multicharacter with zdx_core.
+
+Proposed Changes
+Configuration
+Update config.lua to officially support zdx as a framework option.
+
+[MODIFY] 
+config.lua
+Core Integration
+Update the core files to recognize zdx_core and fetch the ZDX core object via your exported GetCoreObject() instead of relying on ESX fallbacks.
+
+[MODIFY] 
+client/core.lua
+[MODIFY] 
+server/core.lua
+ZDX Framework Bridges (NEW)
+Create dedicated framework bridging files for ZDX. This will replace the ESX-specific SQL queries and logic.
+
+We will update the database queries to interact with your zdx_users table instead of the standard users table.
+We will replace ESX.RegisterServerCallback with your native ZDX.RegisterCallback system.
+We will correctly hook into ZDX player loading/spawning events.
+[NEW] 
+client/frameworks/zdx.lua
+[NEW] 
+server/frameworks/zdx.lua
+Open Questions
+WARNING
+
+Your zdx_core currently has Config.MaxCharacters = 1. Does your zdx_core natively support loading characters with a character ID prefix on the identifier (e.g. 1:license:...), or should zdx_multicharacter handle injecting the specific character identifier into the zdx_users table directly?
+
+IMPORTANT
+
+If you approve, I will proceed to build out the native ZDX framework files for the multicharacter resource so it accurately reads your zdx_users table.
+

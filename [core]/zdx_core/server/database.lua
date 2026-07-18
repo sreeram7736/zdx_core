@@ -117,3 +117,25 @@ function ZDX_DB.SavePlayer(playerData)
         }
     )
 end
+
+--- Save a player's skin data specifically
+---@param identifier string
+---@param skinData table
+function ZDX_DB.SaveSkin(identifier, skinData)
+    MySQL.update.await(
+        'UPDATE `zdx_users` SET `skin` = ? WHERE `identifier` = ?',
+        { json.encode(skinData), identifier }
+    )
+end
+
+--- Check if a player has skin data saved
+---@param identifier string
+---@return boolean
+function ZDX_DB.HasSkin(identifier)
+    local result = MySQL.scalar.await('SELECT `skin` FROM `zdx_users` WHERE `identifier` = ?', { identifier })
+    if result and result ~= '' and result ~= '[]' and result ~= '{}' then
+        return true
+    end
+    return false
+end
+

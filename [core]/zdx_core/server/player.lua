@@ -229,6 +229,17 @@ function CreateZDXPlayer(source, identifier, dbData)
         return self.metadata
     end
 
+    -- ── Skin ──
+    function self.Functions.SetSkin(skinData)
+        self.skin = skinData
+        self.Functions.UpdatePlayerData()
+        ZDX_DB.SaveSkin(self.identifier, self.skin)
+    end
+
+    function self.Functions.GetSkin()
+        return self.skin
+    end
+
     -- ── Notify ──
     function self.Functions.Notify(msg, nType, duration)
         TriggerClientEvent('zdx:showNotification', self.source, msg, nType or 'info', duration or 5000)
